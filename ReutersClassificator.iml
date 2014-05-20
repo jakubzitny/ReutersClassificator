@@ -9,8 +9,14 @@
       <sourceFolder url="file://$MODULE_DIR$/src/main/resources" type="java-resource" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
-    <orderEntry type="inheritedJdk" />
+    <orderEntry type="jdk" jdkName="1.8" jdkType="JavaSDK" />
     <orderEntry type="sourceFolder" forTests="false" />
+    <orderEntry type="library" name="javax.xml:jaxp-api:1.4.2" level="project" />
+    <orderEntry type="library" name="org.apache.directory.studio:org.apache.commons.io:2.4" level="project" />
+    <orderEntry type="library" name="commons-cli:commons-cli:1.21" level="project" />
+    <orderEntry type="library" name="org.apache.lucene:lucene-core:4.8.1" level="project" />
+    <orderEntry type="library" name="org.apache.lucene:lucene-analyzers-common:4.8.1" level="project" />
+    <orderEntry type="library" name="org.apache.lucene:lucene-queryparser:4.8.1" level="project" />
   </component>
 </module>
 
