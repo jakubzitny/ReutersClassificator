@@ -17,6 +17,8 @@ public class Document extends Object {
     protected String mTitle;
     protected String mBody;
     protected List<String> mTopics;
+    protected int mNewId;
+    protected int mOldId;
     protected static final String SPLIT = "";
     public static final String SPLIT_TEST = "TEST";
     public static final String SPLIT_TRAIN = "TRAIN";
@@ -29,6 +31,12 @@ public class Document extends Object {
 
     public Document () {
         mIsTerminator = false;
+    }
+
+    public Document (int oldId, int newId) {
+        mIsTerminator = false;
+        mOldId = oldId;
+        mNewId = newId;
     }
 
     public Document (boolean isTerminator) {
@@ -81,4 +89,19 @@ public class Document extends Object {
         return mIsTerminator;
     }
 
+    public int getmNewId() {
+        return mNewId;
+    }
+
+    public void setmNewId(int mNewId) {
+        this.mNewId = mNewId;
+    }
+
+    public int getmOldId() {
+        return mOldId;
+    }
+
+    public void setmOldId(int mOldId) {
+        this.mOldId = mOldId;
+    }
 }

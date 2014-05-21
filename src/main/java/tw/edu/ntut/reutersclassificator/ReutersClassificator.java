@@ -50,17 +50,17 @@ public class ReutersClassificator {
         Thread consume = new Thread(classificator);
         System.out.println("produce start");
         produce.start();
-        System.out.println("consume start");
-        consume.start();
-        System.out.println("produce join");
+//        System.out.println("consume start");
+//        consume.start();
+//        System.out.println("produce join");
         produce.join();
-        System.out.println("consume join");
-        consume.join();
-        List<Double> res = classificator.search("cocoa");
-        System.out.println("Found: " + res.size());
-        for (Double r: res) {
-            System.out.println(r.floatValue());
-        }
+//        System.out.println("consume join");
+//        consume.join();
+//        List<Double> res = classificator.search("cocoa");
+//        System.out.println("Found: " + res.size());
+//        for (Double r: res) {
+//            System.out.println(r.floatValue());
+//        }
 
     }
 

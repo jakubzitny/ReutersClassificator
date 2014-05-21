@@ -12,8 +12,12 @@ public class TrainDocument extends Document {
 
     private static final String SPLIT = "TRAIN";
 
-    public static TrainDocument create () {
-        return new TrainDocument();
+    public TrainDocument (int oldId, int newId) {
+        super(oldId, newId);
+    }
+
+    public static TrainDocument create (int oldId, int newId) {
+        return new TrainDocument(oldId, newId);
     }
 
     public static TrainDocument create (Document doc) {

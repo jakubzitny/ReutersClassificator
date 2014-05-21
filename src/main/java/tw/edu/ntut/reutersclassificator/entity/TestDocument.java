@@ -12,8 +12,12 @@ public class TestDocument extends Document {
 
     private static final String SPLIT = "TEST";
 
-    public static TestDocument create() {
-        return new TestDocument();
+    public TestDocument (int oldId, int newId) {
+        super(oldId, newId);
+    }
+
+    public static TestDocument create(int oldId, int newId) {
+        return new TestDocument(oldId, newId);
     }
 
     public static TestDocument create(Document doc) {

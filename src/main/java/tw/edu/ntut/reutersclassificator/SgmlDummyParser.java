@@ -22,13 +22,13 @@ import java.util.regex.Pattern;
  */
 public class SgmlDummyParser implements Runnable {
 
-    private static final String sgmlLewisHead = "<!DOCTYPE lewis SYSTEM \"lewis.dtd\">";
-
-    private static final String REUTERS_OPEN = "<REUTERS.*LEWISSPLIT=\"(.*?)\".*>";
+    private static final String SGML_LEWIS_HEAD = "<!DOCTYPE lewis SYSTEM \"lewis.dtd\">";
+    private static final String REUTERS_OPEN =
+            "<REUTERS.*LEWISSPLIT=\"(.*?)\".*OLDID=\"(.*?)\".*NEWID=\"(.*?)\".*>";
     private static final String REUTERS_CLOSE = "</REUTERS>";
     private static final String TOPICS_LINE = "<TOPICS>.*</TOPICS>";
     private static final String TEXT_LINE_UNPROC = ".*<TEXT TYPE=\"(.*?)\">.*";
-    private static final String TEXT_LINE_OPEN = ".*<TEXT>.*";
+    private static final String TEXT_LINE_OPEN = ".*<TEXT.*?>.*";
     private static final String TEXT_LINE_CLOSE = ".*</TEXT>.*";
     private static final String TITLE_OPEN = ".*<TITLE>.*";
     private static final String TITLE_CLOSE = ".*</TITLE>.*";
@@ -151,7 +151,7 @@ public class SgmlDummyParser implements Runnable {
         BufferedReader br = new BufferedReader(new FileReader(file));
         String currentLine;
         while ((currentLine = br.readLine()) != null) {
-            if (currentLine.equals(sgmlLewisHead)) {
+            if (currentLine.equals(SGML_LEWIS_HEAD)) {
                 // skip the stupid sgml header
                 continue;
             } else if (currentLine.matches(mPatternReutersOpen.toString())) {
@@ -160,30 +160,40 @@ public class SgmlDummyParser implements Runnable {
                 Document currentDocument = new Document();
                 if (matcher.find()) {
                     String lewisSplit = matcher.group(1);
+                    int oldId = Integer.parseInt(matcher.group(2));
+                    int newId = Integer.parseInt(matcher.group(3));
                     if (lewisSplit.equals(Document.SPLIT_TEST)) {
-                        currentDocument = parseDocument(br, TestDocument.create());
+                        currentDocument = parseDocument(br, TestDocument.create(oldId, newId));
                     } else if (lewisSplit.equals(Document.SPLIT_TRAIN)) {
-                        currentDocument = parseDocument(br, TrainDocument.create());
+                        currentDocument = parseDocument(br, TrainDocument.create(oldId, newId));
                     } else {
-                        throw new UnknownDocumentException(lewisSplit);
+                        // TODO: test this
+                        //throw new UnknownDocumentException(lewisSplit);
+                        System.err.println("Document of unknown LEWISSPLIT type found ("
+                                + lewisSplit + "). Skipping.");
+                        // move br to the end of this doc
+                        while (!br.readLine().matches(mPatternReutersClose.toString()));
+                        continue;
                     }
                 }
-//                int length = (currentDocument.getBody() == null) ? 0 : currentDocument.getBody().length();
-//                System.out.println("processed doc " + currentDocument.getTitle() + " (" +
-//                        length + ")");
-//                for (String topic: currentDocument.getTopics()) {
-//                    System.out.print(topic+ ", ");
-//                }
-//                System.out.println();
-//                write the document to the queue for consumers
-                  mQueue.put(currentDocument);
+                int length = (currentDocument.getBody() == null) ? 0 : currentDocument.getBody().length();
+                System.out.println("doc "+ currentDocument.getmNewId() + ": " + currentDocument.getTitle() + " (" +
+                        length + ")");
+                if (currentDocument.getTopics().size() > 0) {
+                    for (String topic : currentDocument.getTopics()) {
+                        System.out.print(topic + ", ");
+                    }
+                }
+                System.out.println();
+//                //write the document to the queue for consumers
+//                mQueue.put(currentDocument);
             }
         }
     }
 
     /**
      * parses the insides of single Reuters document
-     * TODO: elements
+     * TODO: element entities
      * @param br buffered reader from inside the file
      * @param doc entity to fill the data into
      * @return
@@ -199,16 +209,11 @@ public class SgmlDummyParser implements Runnable {
             } else if (currentLine.matches(mPatternTopicsLine.toString())) {
                 doc.setTopics(parseTopics(currentLine));
                 continue;
-            } else if (currentLine.matches(mPatternTitleOpen.toString())) {
-                doc.setTitle(parseElement(br, currentLine, "TITLE"));
-                continue;
-            } else if (currentLine.matches(mPatternBodyOpen.toString())) {
-                doc.setBody(parseElement(br, currentLine, "BODY"));
-            } else if (currentLine.matches(mPatternTextLineUnproc.toString())) {
-                // TODO: finish this thing with titles
-                doc.setBody(parseElement(br, currentLine, "TEXT"));
-            } else if (currentLine.matches(mPatternTextOpen.toString())) {
-                doc.setBody(parseElement(br, currentLine, "TEXT"));
+            }  else if (currentLine.matches(mPatternTextOpen.toString())) {
+                parseText(doc, br, currentLine);
+                //doc.setBody (parseElement(br, currentLine, "TEXT"));
+//            } else if (currentLine.matches(mPatternTextLineUnproc.toString())) {
+//                doc.setBody(parseElement(br, currentLine, "TEXT"));
             } else if (currentLine.matches(mPatternReutersClose.toString())) {
                 break;
             } else {
@@ -219,15 +224,34 @@ public class SgmlDummyParser implements Runnable {
     }
 
     /**
-     * parses topics element and its insides
-     * @param topicsLine
-     * @return
+     *
+     * @param currentDocument
+     * @param br buffered reader from inside the parent element
+     * @param startLine first line where the open tag was found
      * @throws IOException
+     * @throws UnexpectedEOFException
      */
-    private List<String> parseTopics (String topicsLine) throws IOException {
-        String refinedTopicsLine = topicsLine.replace("<TOPICS><D>", "").replace("</D></TOPICS>", "")
-                .replace("</D><D>", "~").replace("<TOPICS>", "").replace("</TOPICS>","");
-        return Arrays.asList(refinedTopicsLine.split("~"));
+    private void parseText (Document currentDocument, BufferedReader br, String startLine)
+            throws IOException, UnexpectedEOFException {
+        if (startLine.matches(mPatternTextClose.toString())) {
+            return;
+        }
+        while (true) {
+            String currentLine = br.readLine();
+            if (currentLine == null) {
+                throw new UnexpectedEOFException();
+            } else if (currentLine.matches(mPatternTitleOpen.toString())) {
+                currentDocument.setTitle(parseElement(br, currentLine, "TITLE"));
+                continue;
+            } else if (currentLine.matches(mPatternBodyOpen.toString())) {
+                currentDocument.setBody(parseElement(br, currentLine, "BODY"));
+                break;
+            } else if (currentLine.matches(mPatternTextClose.toString())) {
+                break;
+            } else {
+                // skip other possible body elements
+            }
+        }
     }
 
     /**
@@ -253,13 +277,27 @@ public class SgmlDummyParser implements Runnable {
             if (currentLine == null) {
                 throw new UnexpectedEOFException();
             } else if (currentLine.matches(".*"+elementClose+".*")) {
-                elementPayload += startLine.substring(0, startLine.indexOf(elementClose) + elementClose.length());
+                if (startLine.indexOf(elementClose) > 0) {
+                    elementPayload += startLine.substring(0, startLine.indexOf(elementClose));
+                }
                 break;
             } else {
                 elementPayload += "\n" + currentLine;
             }
         }
         return elementPayload;
+    }
+
+    /**
+     * parses topics element and its insides
+     * @param topicsLine
+     * @return
+     * @throws IOException
+     */
+    private List<String> parseTopics (String topicsLine) throws IOException {
+        String refinedTopicsLine = topicsLine.replace("<TOPICS><D>", "").replace("</D></TOPICS>", "")
+                .replace("</D><D>", "~").replace("<TOPICS>", "").replace("</TOPICS>","");
+        return Arrays.asList(refinedTopicsLine.split("~"));
     }
 
 }
