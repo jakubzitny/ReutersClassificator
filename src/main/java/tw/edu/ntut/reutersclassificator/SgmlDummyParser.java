@@ -51,6 +51,7 @@ public class SgmlDummyParser implements Runnable {
     private List<File> mFiles;
     private LinkedBlockingQueue<Document> mQueue;
     private final int mThreadNo;
+    private int mNo = 0;
 
     /**
      * factory method
@@ -96,39 +97,55 @@ public class SgmlDummyParser implements Runnable {
     }
 
     /**
-     * parses the list of file
+     * parses the list of files
      * catches all the exceptions during parsing phase
+     * terminates the queue
+     * TODO: threads for each file
      */
     private void parseFiles () {
-        for (File file: mFiles) {
-            try {
-                // TODO: threadpool
-                parseFile(file);
-            } catch (UnknownDocumentException e) {
-                // skip the document
-                System.err.println(e.getMessage());
-                continue;
-            }  catch (FileNotFoundException e) {
-                // skip the file maybe there are others
-                System.err.println("File not found. Skipping.");
-                System.err.println(e.getMessage());
-                continue;
-            } catch (IOException e) {
-                // TODO: think
-                System.err.println("Parsing fail..");
-                System.err.println(e.getMessage());
-                System.exit(1);
-            } catch (InterruptedException e) {
-                System.err.println("Thread communication fail.");
-                System.err.println(e.getMessage());
-                System.exit(1);
-            } catch (UnexpectedEOFException e) {
-                System.err.println(e.getMessage());
-                System.exit(2);
+        try {
+            for (File file: mFiles) {
+                try {
+                    parseFile(file);
+                } catch (UnknownDocumentException e) {
+                    // skip the file (thank you gc)
+                    System.err.println(e.getMessage());
+                    // continue;
+                } catch (FileNotFoundException e) {
+                    // skip the file maybe there are others
+                    System.err.println("File not found. Skipping.");
+                    System.err.println(e.getMessage());
+                    // continue;
+                }
             }
+            // send terminate "signal" to the queue
+            for (int i = 0; i < mThreadNo + 1; i++) {
+                mQueue.put(new Document(true));
+            }
+        } catch (IOException e) {
+            // TODO: think
+            System.err.println("Parsing fail..");
+            System.err.println(e.getMessage());
+            System.exit(1);
+        } catch (InterruptedException e) {
+            System.err.println("Thread communication fail.");
+            System.err.println(e.getMessage());
+            System.exit(1);
+        } catch (UnexpectedEOFException e) {
+            System.err.println(e.getMessage());
+            System.exit(2);
         }
     }
 
+    /**
+     * parses single sgml file
+     * saves the entity to queue
+     * @param file
+     * @throws IOException
+     * @throws UnknownDocumentException
+     * @throws InterruptedException
+     * @throws UnexpectedEOFException
+     */
     private void parseFile (File file) throws IOException, UnknownDocumentException,
             InterruptedException, UnexpectedEOFException {
         BufferedReader br = new BufferedReader(new FileReader(file));
@@ -148,7 +165,6 @@ public class SgmlDummyParser implements Runnable {
                     } else if (lewisSplit.equals(Document.SPLIT_TRAIN)) {
                         currentDocument = parseDocument(br, TrainDocument.create());
                     } else {
-                        // TODO: read br until the end of current doc
                         throw new UnknownDocumentException(lewisSplit);
                     }
                 }
@@ -159,15 +175,21 @@ public class SgmlDummyParser implements Runnable {
 //                    System.out.print(topic+ ", ");
 //                }
 //                System.out.println();
-//                write the document to the queue for consuming
-                mQueue.put(currentDocument);
+//                write the document to the queue for consumers
+                  mQueue.put(currentDocument);
             }
         }
-        for (int i = 0; i < mThreadNo; i++)
-            mQueue.put(new Document(true));
     }
 
-    // TODO: (element objects)
+    /**
+     * parses the insides of single Reuters document
+     * TODO: elements
+     * @param br buffered reader from inside the file
+     * @param doc entity to fill the data into
+     * @return
+     * @throws IOException
+     * @throws UnexpectedEOFException
+     */
     private Document parseDocument (BufferedReader br, Document doc)
             throws IOException, UnexpectedEOFException {
         while (true) {
@@ -190,18 +212,33 @@ public class SgmlDummyParser implements Runnable {
             } else if (currentLine.matches(mPatternReutersClose.toString())) {
                 break;
             } else {
-                // ignore other child elements
+                // ignore all other child elements
             }
         }
         return doc;
     }
 
+    /**
+     * parses topics element and its insides
+     * @param topicsLine
+     * @return
+     * @throws IOException
+     */
     private List<String> parseTopics (String topicsLine) throws IOException {
         String refinedTopicsLine = topicsLine.replace("<TOPICS><D>", "").replace("</D></TOPICS>", "")
                 .replace("</D><D>", "~").replace("<TOPICS>", "").replace("</TOPICS>","");
         return Arrays.asList(refinedTopicsLine.split("~"));
     }
 
+    /**
+     * parses general element with string content
+     * @param br buffered reader from inside the parent element
+     * @param startLine first line where the open tag was found
+     * @param element what kind of element is this?
+     * @return string body of the doc
+     * @throws IOException
+     * @throws UnexpectedEOFException
+     */
     private String parseElement(BufferedReader br, String startLine, String element)
             throws IOException, UnexpectedEOFException {
         String elementOpen = "<" + element + ">";

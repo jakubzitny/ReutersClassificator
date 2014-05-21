@@ -44,6 +44,7 @@ public class Document extends Object {
 
     /**
      * convert document to lucene indexable document
+     * ref http://bit.ly/1jBtCzL and http://bit.ly/SgIAQc
      * TODO: add title
      * @return
      */

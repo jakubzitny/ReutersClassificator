@@ -34,13 +34,14 @@ public class ClassificatorConsumer implements Runnable {
     private static final int HITS_PER_PAGE = 10;
 
     /** default search field in Document */
-    private static final String DEFAULT_SEARCH_FIELD = "text";
+    private static final String DEFAULT_SEARCH_FIELD = "body";
 
     /** system-specific temp directory with place to write indexes */
-    private static final String TMP_DIR = System.getProperty("java.io.tmpdir") + "/WarcSearch/" + System.nanoTime();
+    private static final String TMP_DIR = System.getProperty("java.io.tmpdir")
+            + "/ReutersClassificator/" + System.nanoTime();
 
     /** lucene analyzer */
-    private static StandardAnalyzer analyzer = new StandardAnalyzer(Version.LUCENE_47);
+    private static StandardAnalyzer analyzer = new StandardAnalyzer(Version.LUCENE_48);
 
     /** lucene directory - use RAMDirectory to store indexes in memory, FSDirectory in file */
     //private static Directory _index = new RAMDirectory();
@@ -68,7 +69,7 @@ public class ClassificatorConsumer implements Runnable {
     public ClassificatorConsumer(LinkedBlockingQueue<Document> queue, int threadNo) {
         _queue = queue;
         _threadNo = threadNo;
-        _config = new IndexWriterConfig(Version.LUCENE_47, analyzer);
+        _config = new IndexWriterConfig(Version.LUCENE_48, analyzer);
         _config.setOpenMode(OpenMode.CREATE);
         _config.setSimilarity(new DefaultSimilarity()); // DefaultSimilarity is subclass of TFIDFSimilarity
         try {
@@ -86,26 +87,26 @@ public class ClassificatorConsumer implements Runnable {
      * @param querystr string o user's query
      * @return array of Result objects sorted by ranking
      */
-//    public ArrayList<Result> search(String querystr) {
-//        Query query = prepareQuery(querystr);
-//        ArrayList<Result> results = new ArrayList<Result>();
-//        try {
-//            openReader();
-//            _searcher.search(query, _collector);
-//            ScoreDoc[] hits = _collector.topDocs().scoreDocs;
-//            for (int i = 0; i < hits.length; ++i) {
-//                int docId = hits[i].doc;
-//                Document d = _searcher.doc(docId);
-//                results.add(new Result(d, docId, hits[i].score));
-//            }
-//            closeReader();
-//        } catch (IOException e) {
-//            System.err.println("There was a problem with searching Documents.");
-//            System.err.println(e.getMessage());
-//            e.printStackTrace();
-//        }
-//        return results;
-//    }
+    public ArrayList<Double> search(String querystr) {
+        Query query = prepareQuery(querystr);
+        ArrayList<Double> results = new ArrayList<Double>();
+        try {
+            openReader();
+            _searcher.search(query, _collector);
+            ScoreDoc[] hits = _collector.topDocs().scoreDocs;
+            for (int i = 0; i < hits.length; ++i) {
+                //int docId = hits[i].doc;
+                //Document d = _searcher.doc(docId);
+                results.add(new Double(hits[i].score));
+            }
+            closeReader();
+        } catch (IOException e) {
+            System.err.println("There was a problem with searching Documents.");
+            System.err.println(e.getMessage());
+            e.printStackTrace();
+        }
+        return results;
+    }
 
     /**
      * creates Query from user's input query string
@@ -115,7 +116,7 @@ public class ClassificatorConsumer implements Runnable {
     private Query prepareQuery(String querystr) {
         Query query = null;
         try {
-            query = new QueryParser(Version.LUCENE_47, DEFAULT_SEARCH_FIELD, analyzer).parse(querystr);
+            query = new QueryParser(Version.LUCENE_48, DEFAULT_SEARCH_FIELD, analyzer).parse(querystr);
         } catch (org.apache.lucene.queryparser.classic.ParseException e) {
             System.err.println("There was a problem with parsing your query.");
             System.err.println(e.getMessage());
@@ -206,7 +207,8 @@ public class ClassificatorConsumer implements Runnable {
             int i = 0;
             while (true) {
                 try {
-                    Document doc = _queue.take();
+                    Document doc;
+                    doc = _queue.take();
                     if (doc.isTerminator()) break;
                     _writer.addDocument(doc.getLuceneDocument());
                     if (++i%1000==0)
