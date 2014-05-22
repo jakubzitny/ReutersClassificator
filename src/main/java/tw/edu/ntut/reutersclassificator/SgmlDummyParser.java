@@ -19,7 +19,7 @@ import java.util.regex.Pattern;
  * @author Jakub Zitny <t102012001@ntut.edu.tw>
  * @since May 20 15:57 2014
  */
-public class SgmlDummyParser implements Runnable {
+public class SgmlDummyParser {
 
     private static final String SGML_LEWIS_HEAD = "<!DOCTYPE lewis SYSTEM \"lewis.dtd\">";
     private static final String REUTERS_OPEN =
@@ -48,23 +48,10 @@ public class SgmlDummyParser implements Runnable {
     private final Pattern mPatternTextClose;
 
     private List<File> mFiles;
-    private LinkedBlockingQueue<Document> mQueue;
-    private final int mThreadNo = 0;
-    private int mNo = 0;
 
     private Map<String, Category> mTopics = new HashMap<String, Category>();
     private Map<Integer, Document> mDocuments = new HashMap<Integer, Document>();
     private Map<Integer, Document> mTestDocuments = new HashMap<Integer, Document>();
-
-    /**
-     * factory method
-     * @param files
-     * @param queue
-     * @return
-     */
-    public static SgmlDummyParser create(List<File> files, LinkedBlockingQueue<Document> queue, int threadNo) {
-        return new SgmlDummyParser(files/*, queue, threadNo*/);
-    }
 
     /**
      * factory method simple (sequentialň
@@ -94,17 +81,6 @@ public class SgmlDummyParser implements Runnable {
         mPatternTextLineUnproc = Pattern.compile(TEXT_LINE_UNPROC);
         // prepare vars
         mFiles = files;
-        //mQueue = queue;
-        //mThreadNo = threadNo;
-    }
-
-    /**
-     * runs this thread
-     * initiates the parsing of given list of files
-     */
-    @Override
-    public void run() {
-        parseFiles();
     }
 
     /**
@@ -121,18 +97,11 @@ public class SgmlDummyParser implements Runnable {
                 } catch (UnknownDocumentException e) {
                     // skip the file (thank you gc)
                     System.err.println(e.getMessage());
-                    // continue;
                 } catch (FileNotFoundException e) {
                     // skip the file maybe there are others
                     System.err.println("File not found. Skipping.");
-                    System.err.println(e.getMessage());
-                    // continue;
                 }
             }
-            // send terminate "signal" to the queue
-//            for (int i = 0; i < mThreadNo + 1; i++) {
-//                mQueue.put(new Document(true));
-//            }
         } catch (IOException e) {
             // TODO: think
             System.err.println("Parsing fail..");
@@ -179,24 +148,12 @@ public class SgmlDummyParser implements Runnable {
                     } else if (lewisSplit.equals(Document.SPLIT_TRAIN)) {
                         currentDocument = parseDocument(br, TrainDocument.create(oldId, newId));
                     } else {
-//                        System.err.println("Document of unknown LEWISSPLIT type found ("
-//                                + lewisSplit + "). Skipping.");
+                        // found document that is not test nor train
                         // move br to the end of this doc
                         while (!br.readLine().matches(mPatternReutersClose.toString()));
                         continue;
                     }
                 }
-//                int length = (currentDocument.getBody() == null) ? 0 : currentDocument.getBody().length();
-//                System.out.println("doc "+ currentDocument.getmNewId() + ": " + currentDocument.getTitle() + " (" +
-//                        length + ")");
-//                if (currentDocument.getTopics().size() > 0) {
-//                    for (String topic : currentDocument.getTopics()) {
-//                        System.out.print(topic + ", ");
-//                    }
-//                }
-//                System.out.println();
-//                //write the document to the queue for consumers
-//                mQueue.put(currentDocument);
                 if (currentDocument.getBody().equals("")) {
                     // ignore empty bodies
                     continue;
@@ -205,10 +162,9 @@ public class SgmlDummyParser implements Runnable {
                 if (currentDocument instanceof TestDocument) {
                     mTestDocuments.put(currentDocument.getmNewId(), currentDocument);
                 } else {
-                    //mTrainDocuments.put(currentDocument.getmNewId(), currentDocument);
                     for (String topicName: currentDocument.getTopics()) {
                         if (topicName.equals("")) {
-                            // ignore empty topics ("") where do they come from?
+                            // ignore empty topics ("")
                             continue;
                         }
                         if (mTopics.containsKey(topicName)) {

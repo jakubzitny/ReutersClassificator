@@ -20,6 +20,11 @@ public class TermVector {
         return tv;
     }
 
+    /**
+     * calculate size for this vector
+     * used in cosine similarity
+     * @return double size
+     */
     public double size () {
         return Math.sqrt(x * x + y * y);
     }

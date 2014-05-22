@@ -37,84 +37,55 @@ public class ReutersClassificator {
     };
 
     /**
-     * dispatches the main stuff
-     * @param docFiles path to file with reuters docs
-     * @param threadNo number of threads
+     * controls the main tasks
+     * @param docFiles file files with sgml content
+     * @throws InterruptedException
      */
-    public static void runParallel(List<File> docFiles, int threadNo) throws InterruptedException {
-        // prepare queue and threads
-        System.out.println("Configuring tools.");
-        LinkedBlockingQueue<Document> sharedQueue = new LinkedBlockingQueue<Document>(512);
-        SgmlDummyParser parser = SgmlDummyParser.create(docFiles, sharedQueue, threadNo);
-        Indexer classificator = new Indexer(sharedQueue, threadNo);
-        Thread produce = new Thread(parser);
-        Thread consume = new Thread(classificator);
-        System.out.println("produce start");
-        produce.start();
-//        System.out.println("consume start");
-//        consume.start();
-//        System.out.println("produce join");
-        produce.join();
-//        System.out.println("consume join");
-//        consume.join();
-//        List<Double> res = classificator.search("cocoa");
-//        System.out.println("Found: " + res.size());
-//        for (Double r: res) {
-//            System.out.println(r.floatValue());
-//        }
-
-    }
-
     public static void runSequential(List<File> docFiles) throws InterruptedException {
-        System.out.println("Parsing documents.");
+        System.out.println("Parsing documents..");
         SgmlDummyParser parser = SgmlDummyParser.create(docFiles);
         parser.parseFiles();
-        // index docs
+        // index docs and calc tv for each doc
         Indexer indexer = new Indexer(parser.getDocuments());
-        System.out.println("Indexing.");
+        System.out.println("Calculating TF-IDFs..");
         indexer.index();
-        // calc each doc tv
-        System.out.println("Assigning vector values.");
-        indexer.retrieveTermVectors(); // TODO: check if they are there
-        // cals centroids for each cat
-        System.out.println("Calculating centroids.");
+        indexer.retrieveTermVectors();
+        // calc centroids for each cat
+        System.out.println("Calculating centroids..");
         Collection<Category> categories = parser.getTopics().values();
         for (Category c: categories) {
             c.calcCentroid();
         }
         // assign test docs
-        System.out.println("Testing.");
+        System.out.println("Assigning test documents to categories..");
         for (Integer docId: parser.getTestDocuments().keySet()) {
             Document doc = parser.getTestDocuments().get(docId);
-            Map<String, Double> cosineSimilarities = new HashMap<String, Double>();
             double min = 1000;
             Category minCat = null;
+            // calc similarity for each category
             for (String key: parser.getTopics().keySet()) {
                 Category cat = parser.getTopics().get(key);
                 TermVector a = cat.getPrototypeTermVector();
                 TermVector b = doc.getTermVector();
-                Double dotProduct = a.x() * b.x() /*+ a.x() * b.y() + a.y() * b.x()*/ + a.y() * b.y();
+                Double dotProduct = a.x() * b.x() + a.y() * b.y();
                 Double cs = Math.acos(dotProduct/(a.size() * b.size()));
+                // find the lowest one
                 if (cs < min) {
                     min = cs;
                     minCat = cat;
                 }
-                cosineSimilarities.put(cat.getName(), cs);
             }
             // assign
-            try {
-                minCat.addTestDoc(doc);
-            } catch (NullPointerException e) {
-                System.out.println("e");
-            }
+            minCat.addTestDoc(doc);
         }
+        System.out.println("=============================");
+        // print results for each category
         for (Category c: categories) {
-            if (c.getTrainDocs().size() > 0) {
-                System.out.println(c.getName() + "," + (c.getTrainDocs().size() + c.getDocs().size()));
+            if (c.getDocs().size() > 0) {
+                System.out.println(c.getDocs().size() +
+                        " testing documents have been added to category '" + c.getName() + "'.");
             }
         }
-        System.out.println("Done.");
-
     }
 
     /**
@@ -157,7 +128,7 @@ public class ReutersClassificator {
     }
 
     /**
-     *
+     * inspects given directory for sgm files
      * @param workingDir
      * @return
      */

@@ -60,17 +60,7 @@ public class Document extends Object {
      */
     public org.apache.lucene.document.Document getLuceneDocument () {
         org.apache.lucene.document.Document luceneDocument = new org.apache.lucene.document.Document();
-        //luceneDocument.add(new TextField("body", mBody, Field.Store.YES)); not analyzed really? todo
-        FieldType fieldType = new FieldType();
-        fieldType.setIndexed(true);
-        fieldType.setTokenized(true);
-        fieldType.setStored(true);
-        fieldType.setStoreTermVectors(true);
-        fieldType.setStoreTermVectorPositions(true);
-        //fieldType.setStoreTermVectorOffsets(true);
-        //fieldType.setTokenized(true); //?
-        fieldType.freeze();
-        luceneDocument.add(new Field("body", mBody, fieldType)); //Field.Store.YES, Field.Index.ANALYZED, Field.TermVector.YES)
+        luceneDocument.add(new Field("body", mBody, prepareFieldType()));
         luceneDocument.add(new TextField("title", mTitle, Field.Store.YES));
         luceneDocument.add(new StringField("lewisSplit", SPLIT, Field.Store.YES));
         luceneDocument.add(new IntField("newId", mNewId, Field.Store.YES));
@@ -79,6 +69,21 @@ public class Document extends Object {
             luceneDocument.add(new StringField("topic", topic, Field.Store.YES));
         }
         return luceneDocument;
+    }
+
+    /**
+     * prepare field type that stores TFIDF weighs
+     * @return prepared fieldtype
+     */
+    public FieldType prepareFieldType () {
+        FieldType fieldType = new FieldType();
+        fieldType.setIndexed(true);
+        fieldType.setTokenized(true);
+        fieldType.setStored(true);
+        fieldType.setStoreTermVectors(true);
+        fieldType.setStoreTermVectorPositions(true);
+        fieldType.freeze();
+        return fieldType;
     }
 
     public void setTitle(String mTitle) {

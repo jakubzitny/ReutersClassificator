@@ -7,7 +7,6 @@ import java.util.Map;
 
 /**
  * Category
- *
  * @author Jakub Zitny <t102012001@ntut.edu.tw>
  * @since May 22 15:33 2014
  */
@@ -37,6 +36,7 @@ public class Category {
     }
 
     /**
+     * calculates centroid for this category
      * ref at http://stanford.io/1ntGfLr
      * @return
      */
