@@ -1,8 +1,6 @@
 package tw.edu.ntut.reutersclassificator.entity;
 
-import org.apache.lucene.document.Field;
-import org.apache.lucene.document.StringField;
-import org.apache.lucene.document.TextField;
+import org.apache.lucene.document.*;
 
 import java.util.List;
 
@@ -24,6 +22,7 @@ public class Document extends Object {
     public static final String SPLIT_TRAIN = "TRAIN";
 
     protected boolean mIsTerminator;
+    protected TermVector mTermVector;
 
     public String getLewisSplit() {
         return SPLIT;
@@ -37,6 +36,8 @@ public class Document extends Object {
         mIsTerminator = false;
         mOldId = oldId;
         mNewId = newId;
+        mBody = "";
+        mTitle = "";
     }
 
     public Document (boolean isTerminator) {
@@ -51,14 +52,29 @@ public class Document extends Object {
     }
 
     /**
-     * convert document to lucene indexable document
+     * convert document to indexable lucene document
      * ref http://bit.ly/1jBtCzL and http://bit.ly/SgIAQc
-     * TODO: add title
-     * @return
+     * fieldtype ref http://bit.ly/1nuaYYR
+     * field ref http://bit.ly/1ja51fm
+     * @return lucene document representation of this Document
      */
     public org.apache.lucene.document.Document getLuceneDocument () {
         org.apache.lucene.document.Document luceneDocument = new org.apache.lucene.document.Document();
-        luceneDocument.add(new TextField("body", mBody, Field.Store.YES));
+        //luceneDocument.add(new TextField("body", mBody, Field.Store.YES)); not analyzed really? todo
+        FieldType fieldType = new FieldType();
+        fieldType.setIndexed(true);
+        fieldType.setTokenized(true);
+        fieldType.setStored(true);
+        fieldType.setStoreTermVectors(true);
+        fieldType.setStoreTermVectorPositions(true);
+        //fieldType.setStoreTermVectorOffsets(true);
+        //fieldType.setTokenized(true); //?
+        fieldType.freeze();
+        luceneDocument.add(new Field("body", mBody, fieldType)); //Field.Store.YES, Field.Index.ANALYZED, Field.TermVector.YES)
+        luceneDocument.add(new TextField("title", mTitle, Field.Store.YES));
+        luceneDocument.add(new StringField("lewisSplit", SPLIT, Field.Store.YES));
+        luceneDocument.add(new IntField("newId", mNewId, Field.Store.YES));
+        luceneDocument.add(new IntField("oldId", mOldId, Field.Store.YES));
         for (String topic: mTopics) {
             luceneDocument.add(new StringField("topic", topic, Field.Store.YES));
         }
@@ -103,5 +119,13 @@ public class Document extends Object {
 
     public void setmOldId(int mOldId) {
         this.mOldId = mOldId;
+    }
+
+    public TermVector getTermVector() {
+        return mTermVector;
+    }
+
+    public void setTermVector(TermVector mTermVector) {
+        this.mTermVector = mTermVector;
     }
 }

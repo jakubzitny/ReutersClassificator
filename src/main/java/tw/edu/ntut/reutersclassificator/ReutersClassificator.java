@@ -1,9 +1,7 @@
 package tw.edu.ntut.reutersclassificator;
 
 import java.io.*;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.LinkedBlockingQueue;
 
 import org.apache.commons.cli.CommandLine;
@@ -14,7 +12,10 @@ import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.io.filefilter.RegexFileFilter;
+import tw.edu.ntut.reutersclassificator.entity.Category;
 import tw.edu.ntut.reutersclassificator.entity.Document;
+import tw.edu.ntut.reutersclassificator.entity.TermVector;
+import tw.edu.ntut.reutersclassificator.entity.TestDocument;
 import tw.edu.ntut.reutersclassificator.exception.NoSgmlFilesException;
 import tw.edu.ntut.reutersclassificator.exception.NotDirectoryException;
 
@@ -40,12 +41,12 @@ public class ReutersClassificator {
      * @param docFiles path to file with reuters docs
      * @param threadNo number of threads
      */
-    public static void run(List<File> docFiles, int threadNo) throws InterruptedException {
+    public static void runParallel(List<File> docFiles, int threadNo) throws InterruptedException {
         // prepare queue and threads
         System.out.println("Configuring tools.");
         LinkedBlockingQueue<Document> sharedQueue = new LinkedBlockingQueue<Document>(512);
         SgmlDummyParser parser = SgmlDummyParser.create(docFiles, sharedQueue, threadNo);
-        ClassificatorConsumer classificator = new ClassificatorConsumer(sharedQueue, threadNo);
+        Indexer classificator = new Indexer(sharedQueue, threadNo);
         Thread produce = new Thread(parser);
         Thread consume = new Thread(classificator);
         System.out.println("produce start");
@@ -61,6 +62,58 @@ public class ReutersClassificator {
 //        for (Double r: res) {
 //            System.out.println(r.floatValue());
 //        }
+
+    }
+
+    public static void runSequential(List<File> docFiles) throws InterruptedException {
+        System.out.println("Parsing documents.");
+        SgmlDummyParser parser = SgmlDummyParser.create(docFiles);
+        parser.parseFiles();
+        // index docs
+        Indexer indexer = new Indexer(parser.getDocuments());
+        System.out.println("Indexing.");
+        indexer.index();
+        // calc each doc tv
+        System.out.println("Assigning vector values.");
+        indexer.retrieveTermVectors(); // TODO: check if they are there
+        // cals centroids for each cat
+        System.out.println("Calculating centroids.");
+        Collection<Category> categories = parser.getTopics().values();
+        for (Category c: categories) {
+            c.calcCentroid();
+        }
+        // assign test docs
+        System.out.println("Testing.");
+        for (Integer docId: parser.getTestDocuments().keySet()) {
+            Document doc = parser.getTestDocuments().get(docId);
+            Map<String, Double> cosineSimilarities = new HashMap<String, Double>();
+            double min = 1000;
+            Category minCat = null;
+            for (String key: parser.getTopics().keySet()) {
+                Category cat = parser.getTopics().get(key);
+                TermVector a = cat.getPrototypeTermVector();
+                TermVector b = doc.getTermVector();
+                Double dotProduct = a.x() * b.x() /*+ a.x() * b.y() + a.y() * b.x()*/ + a.y() * b.y();
+                Double cs = Math.acos(dotProduct/(a.size() * b.size()));
+                if (cs < min) {
+                    min = cs;
+                    minCat = cat;
+                }
+                cosineSimilarities.put(cat.getName(), cs);
+            }
+            // assign
+            try {
+                minCat.addTestDoc(doc);
+            } catch (NullPointerException e) {
+                System.out.println("e");
+            }
+        }
+        for (Category c: categories) {
+            if (c.getTrainDocs().size() > 0) {
+                System.out.println(c.getName() + "," + (c.getTrainDocs().size() + c.getDocs().size()));
+            }
+        }
+        System.out.println("Done.");
 
     }
 
@@ -83,7 +136,7 @@ public class ReutersClassificator {
             if (cli.hasOption("d")) {
                 String workingDir = cli.getOptionValue("d");
                 int threads = determineNumberOfThreads(cli.getOptionValue("t", "0"));
-                run(inspectWorkingDir(new File(workingDir)), threads);
+                runSequential(inspectWorkingDir(new File(workingDir)));
             } else {
                 formatter.printHelp("reutersclassificator", options);
                 System.exit(1);

@@ -1,18 +1,16 @@
 package tw.edu.ntut.reutersclassificator;
 
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
+import org.apache.lucene.index.*;
 import org.apache.lucene.queryparser.classic.QueryParser;
 import tw.edu.ntut.reutersclassificator.entity.Document;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
 
-import org.apache.lucene.index.DirectoryReader;
-import org.apache.lucene.index.IndexReader;
-import org.apache.lucene.index.IndexWriter;
-import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.IndexWriterConfig.OpenMode;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
@@ -21,6 +19,7 @@ import org.apache.lucene.search.TopScoreDocCollector;
 import org.apache.lucene.search.similarities.DefaultSimilarity;
 import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.util.Version;
+import tw.edu.ntut.reutersclassificator.entity.TermVector;
 
 /**
  * ClassificatorConsumer
@@ -28,10 +27,13 @@ import org.apache.lucene.util.Version;
  * @author Jakub Zitny <t102012001@ntut.edu.tw>
  * @since May 20 22:53 2014
  */
-public class ClassificatorConsumer implements Runnable {
+public class Indexer implements Runnable {
 
     /** number of results */
     private static final int HITS_PER_PAGE = 10;
+
+    /** lucene version for initialization of control objects */
+    private static final Version LUCENE_VERSION = Version.LUCENE_48;
 
     /** default search field in Document */
     private static final String DEFAULT_SEARCH_FIELD = "body";
@@ -41,24 +43,26 @@ public class ClassificatorConsumer implements Runnable {
             + "/ReutersClassificator/" + System.nanoTime();
 
     /** lucene analyzer */
-    private static StandardAnalyzer analyzer = new StandardAnalyzer(Version.LUCENE_48);
+    private static StandardAnalyzer mAnalyzer = new StandardAnalyzer(LUCENE_VERSION);
 
     /** lucene directory - use RAMDirectory to store indexes in memory, FSDirectory in file */
     //private static Directory _index = new RAMDirectory();
-    private FSDirectory _dir;
+    private FSDirectory mDir;
 
     /** lucene index reader, searcher, collector */
-    private IndexWriterConfig _config;
-    private IndexWriter _writer;
-    private IndexReader _reader;
-    private IndexSearcher _searcher;
-    private TopScoreDocCollector _collector;
+    private IndexWriterConfig mConfig;
+    private IndexWriter mWriter;
+    private IndexReader mReader;
+    private IndexSearcher mSearcher;
+    private TopScoreDocCollector mCollector;
 
     /** produced documents go to this shared queue */
-    private final LinkedBlockingQueue<Document> _queue;
+    private LinkedBlockingQueue<Document> mQueue = null;
 
     /** number of consuming threads */
-    private final int _threadNo;
+    private int mThreadNo = 0;
+
+    private Map<Integer, Document> mDocuments;
 
     /**
      * Indexer constructor
@@ -66,19 +70,63 @@ public class ClassificatorConsumer implements Runnable {
      * IndexWriterConfig specifies IndexWriters behaviour
      * FSDirectory opens tmp file as index storage
      */
-    public ClassificatorConsumer(LinkedBlockingQueue<Document> queue, int threadNo) {
-        _queue = queue;
-        _threadNo = threadNo;
-        _config = new IndexWriterConfig(Version.LUCENE_48, analyzer);
-        _config.setOpenMode(OpenMode.CREATE);
-        _config.setSimilarity(new DefaultSimilarity()); // DefaultSimilarity is subclass of TFIDFSimilarity
+    public Indexer(LinkedBlockingQueue<Document> queue, int threadNo) {
+        mQueue = queue;
+        mThreadNo = threadNo;
+        mConfig = new IndexWriterConfig(LUCENE_VERSION, mAnalyzer);
+        mConfig.setOpenMode(OpenMode.CREATE);
+        mConfig.setSimilarity(new DefaultSimilarity()); // DefaultSimilarity is subclass of TFIDFSimilarity
         try {
-            _dir = FSDirectory.open(new File(TMP_DIR));
+            mDir = FSDirectory.open(new File(TMP_DIR));
         } catch (IOException e) {
             System.err.println("There was a problem with tmp dir in your system.");
             System.err.println(e.getMessage());
             e.getStackTrace();
         }
+    }
+
+    public Indexer (Map<Integer, Document> docs) {
+        mConfig = new IndexWriterConfig(LUCENE_VERSION, mAnalyzer);
+        mConfig.setOpenMode(OpenMode.CREATE);
+        mConfig.setSimilarity(new DefaultSimilarity()); // DefaultSimilarity is subclass of TFIDFSimilarity
+        try {
+            mDir = FSDirectory.open(new File(TMP_DIR));
+        } catch (IOException e) {
+            System.err.println("There was a problem with tmp dir in your system.");
+            System.err.println(e.getMessage());
+            e.getStackTrace();
+        }
+        mDocuments = docs;
+    }
+
+
+    /**
+     * IndexReader http://bit.ly/1jXBg1F
+     *
+     */
+    public void retrieveTermVectors() {
+        try {
+            mReader = DirectoryReader.open(mDir);
+            for (int i = 0; i < mReader.maxDoc(); i++) {
+//                if (mReader.isDeleted(i))
+//                    continue;
+                org.apache.lucene.document.Document doc = mReader.document(i);
+                long tf = mReader.getSumTotalTermFreq(DEFAULT_SEARCH_FIELD);
+                long idf = -1;
+                try {
+                    idf = mReader.getTermVector(i, DEFAULT_SEARCH_FIELD).getSumDocFreq();
+                } catch (NullPointerException e) {
+                    System.out.println("e");
+                }
+                TermVector tfIdf = TermVector.create(tf, idf);
+                mDocuments.get(Integer.parseInt(doc.get("newId"))).setTermVector(tfIdf);
+            }
+        } catch (IOException e) {
+            System.err.println("There was a problem with searching indexed Documents.");
+            System.err.println(e.getMessage());
+            e.printStackTrace();
+        }
+
     }
 
     /**
@@ -92,11 +140,12 @@ public class ClassificatorConsumer implements Runnable {
         ArrayList<Double> results = new ArrayList<Double>();
         try {
             openReader();
-            _searcher.search(query, _collector);
-            ScoreDoc[] hits = _collector.topDocs().scoreDocs;
+            mSearcher.search(query, mCollector);
+            ScoreDoc[] hits = mCollector.topDocs().scoreDocs;
             for (int i = 0; i < hits.length; ++i) {
-                //int docId = hits[i].doc;
-                //Document d = _searcher.doc(docId);
+                int docId = hits[i].doc;
+                org.apache.lucene.document.Document d = mSearcher.doc(docId);
+                mSearcher.getIndexReader().getTermVector(docId, "body"); // mam tfidf vector pre doc yayy
                 results.add(new Double(hits[i].score));
             }
             closeReader();
@@ -116,7 +165,7 @@ public class ClassificatorConsumer implements Runnable {
     private Query prepareQuery(String querystr) {
         Query query = null;
         try {
-            query = new QueryParser(Version.LUCENE_48, DEFAULT_SEARCH_FIELD, analyzer).parse(querystr);
+            query = new QueryParser(LUCENE_VERSION, DEFAULT_SEARCH_FIELD, mAnalyzer).parse(querystr);
         } catch (org.apache.lucene.queryparser.classic.ParseException e) {
             System.err.println("There was a problem with parsing your query.");
             System.err.println(e.getMessage());
@@ -131,9 +180,9 @@ public class ClassificatorConsumer implements Runnable {
      */
     private void openReader() throws IOException {
         try {
-            _reader = DirectoryReader.open(_dir);
-            _searcher = new IndexSearcher(_reader);
-            _collector = TopScoreDocCollector.create(HITS_PER_PAGE, true);
+            mReader = DirectoryReader.open(mDir);
+            mSearcher = new IndexSearcher(mReader);
+            mCollector = TopScoreDocCollector.create(HITS_PER_PAGE, true);
         } catch (Exception e) {
             // TODO
             e.printStackTrace();
@@ -145,7 +194,7 @@ public class ClassificatorConsumer implements Runnable {
      * @throws IOException
      */
     private void closeReader() throws IOException {
-        _reader.close();
+        mReader.close();
     }
 
     /**
@@ -155,17 +204,42 @@ public class ClassificatorConsumer implements Runnable {
      */
     @Override
     public void run() {
+        indexParallel();
+    }
+
+    public void index() {
         try {
-            _writer = new IndexWriter(_dir, _config);
+            mWriter = new IndexWriter(mDir, mConfig);
+            for (Integer docKey : mDocuments.keySet()) {
+                Document doc = mDocuments.get(docKey);
+                if (doc.getBody() == null) continue;
+                try {
+                    mWriter.addDocument(doc.getLuceneDocument());
+//                if (++i%1000==0)
+//                    System.out.println("INFO: Thread#"+mThreadNumber+" processed " + i);
+                } catch (IOException e) {
+                    // TODO Auto-generated catch block
+                    e.printStackTrace();
+                }
+            }
+            mWriter.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void indexParallel() {
+        try {
+            mWriter = new IndexWriter(mDir, mConfig);
             List<Thread> threads = new ArrayList<Thread>();
-            for (int i = 0; i < _threadNo; i++) {
-                threads.add(new Thread(new IndexerTask(_writer, _queue, i)));
+            for (int i = 0; i < mThreadNo; i++) {
+                threads.add(new Thread(new IndexerTask(mWriter, mQueue, i)));
             }
             for (Thread t: threads)
                 t.start();
             for (Thread t: threads)
                 t.join();
-            _writer.close();
+            mWriter.close();
         } catch (IOException e) {
             // TODO Auto-generated catch block
             e.printStackTrace();
@@ -181,9 +255,9 @@ public class ClassificatorConsumer implements Runnable {
      */
     private class IndexerTask implements Runnable {
 
-        private IndexWriter _writer;
-        private LinkedBlockingQueue<Document> _queue;
-        private int _threadNumber;
+        private IndexWriter mWriter;
+        private LinkedBlockingQueue<Document> mQueue;
+        private int mThreadNumber;
 
         /**
          * constructor
@@ -194,9 +268,9 @@ public class ClassificatorConsumer implements Runnable {
          * @param threadNumber
          */
         public IndexerTask(IndexWriter writer, LinkedBlockingQueue<Document> queue, int threadNumber) {
-            _writer = writer;
-            _queue = queue;
-            _threadNumber = threadNumber;
+            mWriter = writer;
+            mQueue = queue;
+            mThreadNumber = threadNumber;
         }
 
         /**
@@ -208,11 +282,11 @@ public class ClassificatorConsumer implements Runnable {
             while (true) {
                 try {
                     Document doc;
-                    doc = _queue.take();
+                    doc = mQueue.take();
                     if (doc.isTerminator()) break;
-                    _writer.addDocument(doc.getLuceneDocument());
+                    mWriter.addDocument(doc.getLuceneDocument());
                     if (++i%1000==0)
-                        System.out.println("INFO: Thread#"+_threadNumber+" processed " + i);
+                        System.out.println("INFO: Thread#"+mThreadNumber+" processed " + i);
                 } catch (IOException e) {
                     // TODO Auto-generated catch block
                     e.printStackTrace();

@@ -1,5 +1,6 @@
 package tw.edu.ntut.reutersclassificator;
 
+import tw.edu.ntut.reutersclassificator.entity.Category;
 import tw.edu.ntut.reutersclassificator.entity.Document;
 import tw.edu.ntut.reutersclassificator.entity.TestDocument;
 import tw.edu.ntut.reutersclassificator.entity.TrainDocument;
@@ -7,9 +8,7 @@ import tw.edu.ntut.reutersclassificator.exception.UnexpectedEOFException;
 import tw.edu.ntut.reutersclassificator.exception.UnknownDocumentException;
 
 import java.io.*;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -50,8 +49,12 @@ public class SgmlDummyParser implements Runnable {
 
     private List<File> mFiles;
     private LinkedBlockingQueue<Document> mQueue;
-    private final int mThreadNo;
+    private final int mThreadNo = 0;
     private int mNo = 0;
+
+    private Map<String, Category> mTopics = new HashMap<String, Category>();
+    private Map<Integer, Document> mDocuments = new HashMap<Integer, Document>();
+    private Map<Integer, Document> mTestDocuments = new HashMap<Integer, Document>();
 
     /**
      * factory method
@@ -60,15 +63,23 @@ public class SgmlDummyParser implements Runnable {
      * @return
      */
     public static SgmlDummyParser create(List<File> files, LinkedBlockingQueue<Document> queue, int threadNo) {
-        return new SgmlDummyParser(files, queue, threadNo);
+        return new SgmlDummyParser(files/*, queue, threadNo*/);
+    }
+
+    /**
+     * factory method simple (sequentialň
+     * @param files
+     * @return
+     */
+    public static SgmlDummyParser create(List<File> files) {
+        return new SgmlDummyParser(files);
     }
 
     /**
      * private constructor
      * @param files
-     * @param queue
      */
-    private SgmlDummyParser(List<File> files, LinkedBlockingQueue<Document> queue, int threadNo) {
+    private SgmlDummyParser(List<File> files) {
         // prepare final patterns
         mPatternReutersOpen = Pattern.compile(REUTERS_OPEN);
         mPatternReutersClose = Pattern.compile(REUTERS_CLOSE);
@@ -83,8 +94,8 @@ public class SgmlDummyParser implements Runnable {
         mPatternTextLineUnproc = Pattern.compile(TEXT_LINE_UNPROC);
         // prepare vars
         mFiles = files;
-        mQueue = queue;
-        mThreadNo = threadNo;
+        //mQueue = queue;
+        //mThreadNo = threadNo;
     }
 
     /**
@@ -102,7 +113,7 @@ public class SgmlDummyParser implements Runnable {
      * terminates the queue
      * TODO: threads for each file
      */
-    private void parseFiles () {
+    public Map<String, Category> parseFiles () {
         try {
             for (File file: mFiles) {
                 try {
@@ -119,9 +130,9 @@ public class SgmlDummyParser implements Runnable {
                 }
             }
             // send terminate "signal" to the queue
-            for (int i = 0; i < mThreadNo + 1; i++) {
-                mQueue.put(new Document(true));
-            }
+//            for (int i = 0; i < mThreadNo + 1; i++) {
+//                mQueue.put(new Document(true));
+//            }
         } catch (IOException e) {
             // TODO: think
             System.err.println("Parsing fail..");
@@ -135,6 +146,7 @@ public class SgmlDummyParser implements Runnable {
             System.err.println(e.getMessage());
             System.exit(2);
         }
+        return mTopics;
     }
 
     /**
@@ -167,26 +179,50 @@ public class SgmlDummyParser implements Runnable {
                     } else if (lewisSplit.equals(Document.SPLIT_TRAIN)) {
                         currentDocument = parseDocument(br, TrainDocument.create(oldId, newId));
                     } else {
-                        // TODO: test this
-                        //throw new UnknownDocumentException(lewisSplit);
-                        System.err.println("Document of unknown LEWISSPLIT type found ("
-                                + lewisSplit + "). Skipping.");
+//                        System.err.println("Document of unknown LEWISSPLIT type found ("
+//                                + lewisSplit + "). Skipping.");
                         // move br to the end of this doc
                         while (!br.readLine().matches(mPatternReutersClose.toString()));
                         continue;
                     }
                 }
-                int length = (currentDocument.getBody() == null) ? 0 : currentDocument.getBody().length();
-                System.out.println("doc "+ currentDocument.getmNewId() + ": " + currentDocument.getTitle() + " (" +
-                        length + ")");
-                if (currentDocument.getTopics().size() > 0) {
-                    for (String topic : currentDocument.getTopics()) {
-                        System.out.print(topic + ", ");
-                    }
-                }
-                System.out.println();
+//                int length = (currentDocument.getBody() == null) ? 0 : currentDocument.getBody().length();
+//                System.out.println("doc "+ currentDocument.getmNewId() + ": " + currentDocument.getTitle() + " (" +
+//                        length + ")");
+//                if (currentDocument.getTopics().size() > 0) {
+//                    for (String topic : currentDocument.getTopics()) {
+//                        System.out.print(topic + ", ");
+//                    }
+//                }
+//                System.out.println();
 //                //write the document to the queue for consumers
 //                mQueue.put(currentDocument);
+                if (currentDocument.getBody().equals("")) {
+                    // ignore empty bodies
+                    continue;
+                }
+                mDocuments.put(currentDocument.getmNewId(), currentDocument);
+                if (currentDocument instanceof TestDocument) {
+                    mTestDocuments.put(currentDocument.getmNewId(), currentDocument);
+                } else {
+                    //mTrainDocuments.put(currentDocument.getmNewId(), currentDocument);
+                    for (String topicName: currentDocument.getTopics()) {
+                        if (topicName.equals("")) {
+                            // ignore empty topics ("") where do they come from?
+                            continue;
+                        }
+                        if (mTopics.containsKey(topicName)) {
+                            // TODO: careful here with the cast
+                            if (currentDocument instanceof TestDocument) {
+                                continue;
+                            }
+                            mTopics.get(topicName).addTrainDoc((TrainDocument) currentDocument);
+                        } else {
+                            mTopics.put(topicName, Category.create(topicName));
+                            mTopics.get(topicName).addTrainDoc((TrainDocument) currentDocument);
+                        }
+                    }
+                }
             }
         }
     }
@@ -211,9 +247,6 @@ public class SgmlDummyParser implements Runnable {
                 continue;
             }  else if (currentLine.matches(mPatternTextOpen.toString())) {
                 parseText(doc, br, currentLine);
-                //doc.setBody (parseElement(br, currentLine, "TEXT"));
-//            } else if (currentLine.matches(mPatternTextLineUnproc.toString())) {
-//                doc.setBody(parseElement(br, currentLine, "TEXT"));
             } else if (currentLine.matches(mPatternReutersClose.toString())) {
                 break;
             } else {
@@ -300,4 +333,15 @@ public class SgmlDummyParser implements Runnable {
         return Arrays.asList(refinedTopicsLine.split("~"));
     }
 
+    public Map<Integer, Document> getDocuments() {
+        return mDocuments;
+    }
+
+    public Map<Integer, Document> getTestDocuments() {
+        return mTestDocuments;
+    }
+
+    public Map<String, Category> getTopics() {
+        return mTopics;
+    }
 }
