@@ -14,3 +14,7 @@ java -jar rc.jar -d /path/to/reuters/directory
 ### Libraries
 Apache Lucene - for calculating TF-IDF weighs
 Apache Commons CLI 1.2 - for parsing CLI arguments
+
+### Testing stats
+- 2 core MacBook - 21s
+- 4 core Ubuntu VPS - 9s
