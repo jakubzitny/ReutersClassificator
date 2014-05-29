@@ -12,10 +12,7 @@ import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.io.filefilter.RegexFileFilter;
-import tw.edu.ntut.reutersclassificator.entity.Category;
-import tw.edu.ntut.reutersclassificator.entity.Document;
-import tw.edu.ntut.reutersclassificator.entity.TermVector;
-import tw.edu.ntut.reutersclassificator.entity.TestDocument;
+import tw.edu.ntut.reutersclassificator.entity.*;
 import tw.edu.ntut.reutersclassificator.exception.NoSgmlFilesException;
 import tw.edu.ntut.reutersclassificator.exception.NotDirectoryException;
 
@@ -47,44 +44,134 @@ public class ReutersClassificator {
         parser.parseFiles();
         // index docs and calc tv for each doc
         Indexer indexer = new Indexer(parser.getDocuments());
-        System.out.println("Calculating TF-IDFs..");
+        System.out.println("Calculating TVs..");
         indexer.index();
-        indexer.retrieveTermVectors();
+        indexer.retrieveTermVectorsParallel();
         // calc centroids for each cat
         System.out.println("Calculating centroids..");
         Collection<Category> categories = parser.getTopics().values();
         for (Category c: categories) {
             c.calcCentroid();
         }
+        Map<String, Measure> measureMap = new HashMap<String, Measure>();
         // assign test docs
         System.out.println("Assigning test documents to categories..");
         for (Integer docId: parser.getTestDocuments().keySet()) {
             Document doc = parser.getTestDocuments().get(docId);
             double min = 1000;
             Category minCat = null;
+            // prepare debug maps
+            Map<String, Double> refCatCs = new HashMap<String, Double>();
+            Map<String, Double> allCatCs = new HashMap<String, Double>();
+            MapComparator bvc =  new MapComparator(allCatCs);
+            TreeMap<String,Double> sortedAllCatCs= new TreeMap<String,Double>(bvc);
             // calc similarity for each category
             for (String key: parser.getTopics().keySet()) {
                 Category cat = parser.getTopics().get(key);
                 TermVector a = cat.getPrototypeTermVector();
                 TermVector b = doc.getTermVector();
-                Double dotProduct = a.x() * b.x() + a.y() * b.y();
-                Double cs = Math.acos(dotProduct/(a.size() * b.size()));
+                Double dotProduct = TermVector.dotProduct(a, b);
+                Double cs = Math.cos(dotProduct/(a.size() * b.size()));
                 // find the lowest one
                 if (cs < min) {
                     min = cs;
                     minCat = cat;
                 }
+                // assign debug similarities
+                allCatCs.put(cat.getName(), cs);
+                if (doc.getTopics().contains(cat.getName())) {
+                    refCatCs.put(cat.getName(), cs);
+                }
             }
-            // assign
+            // sort allcat for debugging
+            sortedAllCatCs.putAll(allCatCs);
+            // assign really
             minCat.addTestDoc(doc);
+            // test if properly assigned
+//            boolean found = false;
+//            for (String topic: doc.getTopics()) {
+//                if (minCat.getName().equals(topic)) {
+//                    found = true;
+//                    break;
+//                }
+//            }
+//            if (!found) {
+//                if (!measureMap.containsKey(minCat.getName())) {
+//                    Measure measure = new Measure(minCat.getName());
+//                    measureMap.put(minCat.getName(), measure);
+//                }
+//                measureMap.get(minCat.getName()).addRetrieved();
+//                //System.out.println("Wrongly assigned " + doc.getmNewId() + " to >" + minCat.getName() + "<");
+//            } else {
+//                if (!measureMap.containsKey(minCat.getName())) {
+//                    Measure measure = new Measure(minCat.getName());
+//                    measureMap.put(minCat.getName(), measure);
+//                }
+//                measureMap.get(minCat.getName()).addRelevant();
+//                measureMap.get(minCat.getName()).addRetrieved();
+//
+//                //System.out.println("Correctly assigned " + doc.getmNewId() + " to >" + minCat.getName() + "<");
+//            }
         }
-        System.out.println("=============================");
-        // print results for each category
-        for (Category c: categories) {
-            if (c.getDocs().size() > 0) {
-                System.out.println(c.getDocs().size() +
-                        " testing documents have been added to category '" + c.getName() + "'.");
+
+        System.out.println("===============");
+        System.out.println("Category\tRecall\tPrecision\tF-measure");
+        // measure
+        for (String key: parser.getTopics().keySet()) {
+            List<Document> retrieved = parser.getTopics().get(key).getDocs();
+            List<Document> relevant = new ArrayList<Document>();
+            if (parser.getRefTopics().containsKey(key)) {
+                Category refCat = parser.getRefTopics().get(key);
+                relevant = refCat.getDocs();
             }
+            List<Document> relevantRetrieved = new ArrayList<Document>(retrieved);
+            relevantRetrieved.removeAll(relevant);
+            double precision = relevantRetrieved.size()/retrieved.size();
+            double recall = relevantRetrieved.size()/relevant.size();
+            double f1 = 2 * ((precision * recall)/(precision + recall));
+            System.out.println(key + "\t" + recall + "\t" + precision + "\t" + f1);
+        }
+
+
+//        System.out.println("=============================");
+//        // print results for each category
+//        for (Category c: categories) {
+////            if (c.getDocs().size() > 0) {
+////                System.out.println(c.getDocs().size() +
+////                        " testing documents have been added to category '" + c.getName() + "'.");
+////            }
+//            for (Document d: c.getDocs()) {
+//                String ass = c.getName();
+//                boolean found = false;
+//                for (String topic: d.getTopics()) {
+//                    if (ass.equals(topic)) {
+//                        found = true;
+//                        break;
+//                    }
+//                }
+//                if (!found) {
+//                    System.out.println("Wrongly assigned >" + ass + "< to " + d.getmNewId());
+//                } else {
+//                    System.out.println("Correctly assigned >" + ass + "< to " + d.getmNewId() + "<<<<<");
+//                }
+//            }
+//        }
+    }
+
+    private static class MapComparator implements Comparator<String> {
+
+        Map<String, Double> base;
+        public MapComparator(Map<String, Double> base) {
+            this.base = base;
+        }
+
+        // Note: this comparator imposes orderings that are inconsistent with equals.
+        public int compare(String a, String b) {
+            if (base.get(a) >= base.get(b)) {
+                return -1;
+            } else {
+                return 1;
+            } // returning 0 would merge keys
         }
     }
 

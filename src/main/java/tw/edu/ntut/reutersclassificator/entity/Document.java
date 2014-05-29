@@ -1,6 +1,7 @@
 package tw.edu.ntut.reutersclassificator.entity;
 
 import org.apache.lucene.document.*;
+import org.apache.lucene.index.FieldInfo;
 
 import java.util.List;
 
@@ -78,10 +79,13 @@ public class Document extends Object {
     public FieldType prepareFieldType () {
         FieldType fieldType = new FieldType();
         fieldType.setIndexed(true);
+        fieldType.setIndexOptions(FieldInfo.IndexOptions.DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS);
         fieldType.setTokenized(true);
         fieldType.setStored(true);
         fieldType.setStoreTermVectors(true);
         fieldType.setStoreTermVectorPositions(true);
+        fieldType.setStoreTermVectorOffsets(true);
+        fieldType.setStoreTermVectorPayloads(true);
         fieldType.freeze();
         return fieldType;
     }

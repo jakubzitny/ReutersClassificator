@@ -52,6 +52,7 @@ public class SgmlDummyParser {
     private Map<String, Category> mTopics = new HashMap<String, Category>();
     private Map<Integer, Document> mDocuments = new HashMap<Integer, Document>();
     private Map<Integer, Document> mTestDocuments = new HashMap<Integer, Document>();
+    private Map<String, Category> mRefTopics = new HashMap<String, Category>();
 
     /**
      * factory method simple (sequentialň
@@ -160,11 +161,28 @@ public class SgmlDummyParser {
                 }
                 mDocuments.put(currentDocument.getmNewId(), currentDocument);
                 if (currentDocument instanceof TestDocument) {
-                    mTestDocuments.put(currentDocument.getmNewId(), currentDocument);
+                    // ignore docs with empty topics
+                    boolean hasTopics = false;
+                    for (String topic: currentDocument.getTopics()) {
+                        if (!topic.equals("")){
+                            hasTopics = true;
+                            break;
+                        }
+                    }
+                    if (currentDocument.getTopics().size() != 0 && hasTopics) {
+                        mTestDocuments.put(currentDocument.getmNewId(), currentDocument);
+                        // build ref topic set
+                        for (String topicName: currentDocument.getTopics()) {
+                            if (!mRefTopics.containsKey(topicName)) {
+                                mRefTopics.put(topicName, Category.create(topicName));
+                            }
+                            mRefTopics.get(topicName).addTestDoc(currentDocument);
+                        }
+                    }
                 } else {
                     for (String topicName: currentDocument.getTopics()) {
                         if (topicName.equals("")) {
-                            // ignore empty topics ("")
+                            // ignore docs with empty topics ("")
                             continue;
                         }
                         if (mTopics.containsKey(topicName)) {
@@ -299,5 +317,8 @@ public class SgmlDummyParser {
 
     public Map<String, Category> getTopics() {
         return mTopics;
+    }
+    public Map<String, Category> getRefTopics() {
+        return mRefTopics;
     }
 }
