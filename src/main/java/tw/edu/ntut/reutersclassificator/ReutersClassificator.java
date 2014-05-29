@@ -1,6 +1,7 @@
 package tw.edu.ntut.reutersclassificator;
 
 import java.io.*;
+import java.text.DecimalFormat;
 import java.util.*;
 import java.util.concurrent.LinkedBlockingQueue;
 
@@ -54,6 +55,8 @@ public class ReutersClassificator {
             c.calcCentroid();
         }
         Map<String, Measure> measureMap = new HashMap<String, Measure>();
+        int correct = 0;
+        int inCorrect = 0;
         // assign test docs
         System.out.println("Assigning test documents to categories..");
         for (Integer docId: parser.getTestDocuments().keySet()) {
@@ -88,34 +91,40 @@ public class ReutersClassificator {
             // assign really
             minCat.addTestDoc(doc);
             // test if properly assigned
-//            boolean found = false;
-//            for (String topic: doc.getTopics()) {
-//                if (minCat.getName().equals(topic)) {
-//                    found = true;
-//                    break;
-//                }
-//            }
-//            if (!found) {
+            boolean found = false;
+            for (String topic: doc.getTopics()) {
+                if (minCat.getName().equals(topic)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                ++inCorrect;
 //                if (!measureMap.containsKey(minCat.getName())) {
 //                    Measure measure = new Measure(minCat.getName());
 //                    measureMap.put(minCat.getName(), measure);
 //                }
 //                measureMap.get(minCat.getName()).addRetrieved();
-//                //System.out.println("Wrongly assigned " + doc.getmNewId() + " to >" + minCat.getName() + "<");
-//            } else {
+                //System.out.println("Wrongly assigned " + doc.getmNewId() + " to >" + minCat.getName() + "<");
+            } else {
+                ++correct;
 //                if (!measureMap.containsKey(minCat.getName())) {
 //                    Measure measure = new Measure(minCat.getName());
 //                    measureMap.put(minCat.getName(), measure);
 //                }
 //                measureMap.get(minCat.getName()).addRelevant();
 //                measureMap.get(minCat.getName()).addRetrieved();
-//
-//                //System.out.println("Correctly assigned " + doc.getmNewId() + " to >" + minCat.getName() + "<");
-//            }
-        }
 
+                //System.out.println("Correctly assigned " + doc.getmNewId() + " to >" + minCat.getName() + "<");
+            }
+        }
+        double accuracy = (100.0 * correct) / (inCorrect + correct);
         System.out.println("===============");
-        System.out.println("Category\tRecall\tPrecision\tF-measure");
+        System.out.printf("Overall accuracy: %.2f%%", accuracy);
+        System.out.println("===============");
+        System.out.println("Evaluation (ignoring not-assigned/not-retrieved topics):");
+        System.out.println("---------------");
+        System.out.println("Recall\tPrecision\tF-measure\tTopic");
         // measure
         for (String key: parser.getTopics().keySet()) {
             List<Document> retrieved = parser.getTopics().get(key).getDocs();
@@ -126,10 +135,24 @@ public class ReutersClassificator {
             }
             List<Document> relevantRetrieved = new ArrayList<Document>(retrieved);
             relevantRetrieved.removeAll(relevant);
-            double precision = relevantRetrieved.size()/retrieved.size();
-            double recall = relevantRetrieved.size()/relevant.size();
-            double f1 = 2 * ((precision * recall)/(precision + recall));
-            System.out.println(key + "\t" + recall + "\t" + precision + "\t" + f1);
+            double precision = 0.0;
+            if (retrieved.size() == 0) {
+                precision = Float.NaN;
+                continue;
+            } else {
+                precision = (double) relevantRetrieved.size()/retrieved.size();
+            }
+            double recall = 0.0;
+            if (relevant.size() == 0) {
+                recall = Float.NaN;
+                continue;
+            } else {
+                recall = (double) relevantRetrieved.size() / relevant.size();
+            }
+            double f1 = 2.0 * ((precision * recall)/(precision + recall));
+            DecimalFormat df = new DecimalFormat("00.00");
+            System.out.println(df.format(recall) + "\t" + df.format(precision) +
+                    "\t\t" + ((Double.isNaN(f1)) ? f1 + " " : df.format(f1)) + "\t\t> " + key);
         }
 
 
