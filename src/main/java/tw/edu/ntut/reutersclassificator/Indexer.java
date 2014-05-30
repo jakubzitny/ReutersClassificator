@@ -5,6 +5,8 @@ import org.apache.lucene.codecs.lucene46.Lucene46Codec;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.index.*;
 import org.apache.lucene.queryparser.classic.QueryParser;
+import org.apache.lucene.store.Directory;
+import org.apache.lucene.store.RAMDirectory;
 import org.apache.lucene.util.BytesRef;
 import tw.edu.ntut.reutersclassificator.entity.Document;
 import java.io.File;
@@ -48,8 +50,8 @@ public class Indexer {
     private static StandardAnalyzer mAnalyzer = new StandardAnalyzer(LUCENE_VERSION);
 
     /** lucene directory - use RAMDirectory to store indexes in memory, FSDirectory in file */
-    //private static Directory _index = new RAMDirectory();
-    private FSDirectory mDir;
+    private Directory mDir;// = new RAMDirectory();
+    //private FSDirectory mDir;
 
     /** lucene index reader, searcher, collector */
     private IndexWriterConfig mConfig;
@@ -64,20 +66,24 @@ public class Indexer {
 
     private Map<Integer, Document> mDocuments;
 
-    public static Indexer create (Map<Integer, Document> docs) {
-        return new Indexer(docs);
+    public static Indexer create (Map<Integer, Document> docs, Class<?> dirType) {
+        return new Indexer(docs, dirType);
     }
 
-    private Indexer (Map<Integer, Document> docs) {
+    private Indexer (Map<Integer, Document> docs, Class<?> dirType) {
         mConfig = new IndexWriterConfig(LUCENE_VERSION, mAnalyzer);
         mConfig.setOpenMode(OpenMode.CREATE);
         mConfig.setSimilarity(new DefaultSimilarity()); // DefaultSimilarity is subclass of TFIDFSimilarity
-        try {
-            mDir = FSDirectory.open(new File(TMP_DIR));
-        } catch (IOException e) {
-            System.err.println("There was a problem with tmp dir in your system.");
-            System.err.println(e.getMessage());
-            e.getStackTrace();
+        if (dirType == RAMDirectory.class) {
+            mDir = new RAMDirectory();
+        } else {
+            try {
+                mDir = FSDirectory.open(new File(TMP_DIR));
+            } catch (IOException e) {
+                System.err.println("There was a problem with tmp dir in your system.");
+                System.err.println(e.getMessage());
+                e.getStackTrace();
+            }
         }
         mDocuments = docs;
     }

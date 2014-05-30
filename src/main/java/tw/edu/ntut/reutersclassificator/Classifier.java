@@ -127,7 +127,7 @@ public class Classifier {
         System.out.println("-------------------------------------------");
         // measure
         measure(fullEvaluation);
-        System.out.println("===============");
+        System.out.println("===========================================");
         double accuracy = (100.0 * mEvalCorrect) / (mEvalInCorrect + mEvalCorrect);
         System.out.printf("Overall accuracy: %.2f%%\n", accuracy);
     }

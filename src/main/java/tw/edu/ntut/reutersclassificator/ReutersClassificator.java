@@ -13,6 +13,8 @@ import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.io.filefilter.RegexFileFilter;
+import org.apache.lucene.store.FSDirectory;
+import org.apache.lucene.store.RAMDirectory;
 import tw.edu.ntut.reutersclassificator.entity.*;
 import tw.edu.ntut.reutersclassificator.exception.NoSgmlFilesException;
 import tw.edu.ntut.reutersclassificator.exception.NotDirectoryException;
@@ -34,9 +36,12 @@ public class ReutersClassificator {
     private static Option[] option_array = new Option[] {
             new Option("h", "help", false, "displays this help message"),
             new Option("d", "docfile", true, "reuters dataset directory"),
-            new Option("t", "threads", true, "(optional) number of threas"),
-            new Option("f", "fulleval", true, "(optional) print full evaluation results"),
+            new Option("t", "threads", true, "/optional/ number of threads"),
+            new Option("r", "ram", false, "/optional/ create in-memory directory for indices (can speed up execution)"),
+            new Option("f", "fulleval", false, "/optional/ print full evaluation results"),
     };
+
+    private static final double BILLION = 1000000000.0;
 
     /**
      * controls the main tasks
@@ -44,45 +49,49 @@ public class ReutersClassificator {
      * @param docFiles file files with sgml content
      * @throws InterruptedException
      */
-    public static void run(List<File> docFiles, int threads, boolean fullEvaluation)
-            throws InterruptedException {
-        //parse
+    public static void run(List<File> docFiles, int threads, boolean fullEvaluation,
+            Class<?> directoryType) throws InterruptedException {
+        // (1) parse
         System.out.printf("Parsing documents.. ");
+        long totalStartTime = System.nanoTime();
         long startTime = System.nanoTime();
         SgmlDummyParser parser = SgmlDummyParser.create(docFiles);
-        DataSet dataSet = parser.parseFiles();
-        double delta = (System.nanoTime() - startTime)/1000000000.0;
-        System.out.printf("[done in %.2f]\n", delta);
-        // index docs and calc tvs for each doc
-        Indexer indexer = Indexer.create(parser.getDocuments());
+        DataSet dataSet = parser.parseFiles(threads);
+        double delta = (System.nanoTime() - startTime)/BILLION;
+        System.out.printf("[%.2fs]\n", delta);
+        // (2) index docs and calc tvs for each doc
+        Indexer indexer = Indexer.create(parser.getDocuments(), directoryType);
         System.out.printf("Calculating TVs.. ");
         startTime = System.nanoTime();
         indexer.index();
         indexer.retrieveTermVectorsParallel(threads);
-        delta = (System.nanoTime() - startTime)/1000000000.0;
-        System.out.printf("[done in %.2f]\n", delta);
-        // calc centroids for each cat
+        delta = (System.nanoTime() - startTime)/BILLION;
+        System.out.printf("[%.2fs]\n", delta);
+        // (3) calc centroids for each cat
         System.out.printf("Calculating centroids.. ");
         startTime = System.nanoTime();
         Collection<Category> categories = dataSet.getTopics().values();
         for (Category c: categories) {
             c.calcCentroid();
         }
-        delta = (System.nanoTime() - startTime)/1000000000.0;
-        System.out.printf("[done in %.2f]\n", delta);
-        // assign test docs and evaluate
+        delta = (System.nanoTime() - startTime)/BILLION;
+        System.out.printf("[%.2fs]\n", delta);
+        // (4) assign test docs and evaluate
         System.out.printf("Classification.. ");
         startTime = System.nanoTime();
         Classifier classifier = Classifier.create(dataSet);
         classifier.classify();
-        delta = (System.nanoTime() - startTime)/1000000000.0;
-        System.out.printf("[done in %.2f]\n", delta);
-        System.out.println("===============");
+        delta = (System.nanoTime() - startTime)/BILLION;
+        System.out.printf("[%.2fs]\n", delta);
+        // (5) evaluate
+        System.out.println("===========================================");
         System.out.println("Evaluation:");
         if (!fullEvaluation) {
             System.out.println("\tignoring not-assigned/not-retrieved topics\n");
         }
         classifier.evaluate(fullEvaluation);
+        delta = (System.nanoTime() - totalStartTime)/BILLION;
+        System.out.printf("Finished in %.2f seconds.", delta);
     }
 
     /**
@@ -104,9 +113,10 @@ public class ReutersClassificator {
             if (cli.hasOption("d")) {
                 String workingDir = cli.getOptionValue("d");
                 int threads = determineNumberOfThreads(cli.getOptionValue("t", "0"));
-                run(inspectWorkingDir(new File(workingDir)), threads, cli.hasOption("f"));
+                Class<?> directoryType = (cli.hasOption("r")) ? RAMDirectory.class : FSDirectory.class;
+                run(inspectWorkingDir(new File(workingDir)), threads, cli.hasOption("f"), directoryType);
             } else {
-                formatter.printHelp("reutersclassificator", options);
+                formatter.printHelp("rc", options);
                 System.exit(1);
             }
         } catch (ParseException e) {

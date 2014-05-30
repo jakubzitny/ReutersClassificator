@@ -6,6 +6,8 @@ import tw.edu.ntut.reutersclassificator.exception.UnknownDocumentException;
 
 import java.io.*;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -85,9 +87,9 @@ public class SgmlDummyParser {
      * parses the list of files
      * catches all the exceptions during parsing phase
      * terminates the queue
-     * TODO: threads for each file
+     * TODO: files to threadexecutor (later)
      */
-    public DataSet parseFiles () {
+    public DataSet parseFiles (int threads) {
         try {
             for (File file: mFiles) {
                 try {
@@ -101,7 +103,6 @@ public class SgmlDummyParser {
                 }
             }
         } catch (IOException e) {
-            // TODO: think
             System.err.println("Parsing fail..");
             System.err.println(e.getMessage());
             System.exit(1);
