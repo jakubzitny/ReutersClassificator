@@ -13,11 +13,11 @@ java -jar rc.jar -d /path/to/reuters/directory
 
 ### Major features
 
-Originally we developed very unefficient classification program that took more than 3 minutes to execute. We modified some parts of the code, added parallel execution and option to index ocuments right into the memory. These mods managed to speed up the application down to roughly 30s on 4-core Linux machine.
+Originally, we developed very unefficient classification program that took more than 3 minutes to execute. We modified some parts of the code, added parallel execution and option to index documents right into the memory. These mods managed to speed up the application down to roughly 30s on 4-core Linux machine.
 
 If in-memory indexing (-r option) is not turned on, the program uses very low amount of memory and still manages to finish under 40 seconds (on 4-core machine).
 
-However, the success rate of documents properly assigned to their categories is only 55.7%. We believe this is due to the classification method we decided to use. All documents that were incorrectly assigned to the category usually missed the correct category just by few. The exlanation for this is the nature of Rocchio classification in big heterogenous datasets.
+However, the success rate of documents properly assigned to their categories is only 55.7%. We believe this is due to the classification method we decided to use. All documents that were incorrectly assigned to the category usually missed the correct category just by few. The explanation for this is the nature of Rocchio classification for big heterogenous datasets.
 
 To see all available command line options run following:
 ``
