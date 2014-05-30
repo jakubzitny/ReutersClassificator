@@ -18,7 +18,10 @@ import tw.edu.ntut.reutersclassificator.exception.NoSgmlFilesException;
 import tw.edu.ntut.reutersclassificator.exception.NotDirectoryException;
 
 /**
+ * TODO: how far from correct assignment?
  * ReutersClassificator main class
+ * ref http://goo.gl/OhSUTH http://goo.gl/zayG5U
+ * http://goo.gl/p1Zor and http://goo.gl/9GjT6  r
  * @author Jakub Zitny <t102012001@ntut.edu.tw>
  * @since May 19 17:39 2014
  */
@@ -30,172 +33,56 @@ public class ReutersClassificator {
     private static Options options = new Options();
     private static Option[] option_array = new Option[] {
             new Option("h", "help", false, "displays this help message"),
-            new Option("d", "docfile", true, "document collection file"),
+            new Option("d", "docfile", true, "reuters dataset directory"),
             new Option("t", "threads", true, "(optional) number of threas"),
+            new Option("f", "fulleval", true, "(optional) print full evaluation results"),
     };
 
     /**
      * controls the main tasks
+     * measures their execution time
      * @param docFiles file files with sgml content
      * @throws InterruptedException
      */
-    public static void runSequential(List<File> docFiles) throws InterruptedException {
-        System.out.println("Parsing documents..");
+    public static void run(List<File> docFiles, int threads, boolean fullEvaluation)
+            throws InterruptedException {
+        //parse
+        System.out.printf("Parsing documents.. ");
+        long startTime = System.nanoTime();
         SgmlDummyParser parser = SgmlDummyParser.create(docFiles);
-        parser.parseFiles();
-        // index docs and calc tv for each doc
-        Indexer indexer = new Indexer(parser.getDocuments());
-        System.out.println("Calculating TVs..");
+        DataSet dataSet = parser.parseFiles();
+        double delta = (System.nanoTime() - startTime)/1000000000.0;
+        System.out.printf("[done in %.2f]\n", delta);
+        // index docs and calc tvs for each doc
+        Indexer indexer = Indexer.create(parser.getDocuments());
+        System.out.printf("Calculating TVs.. ");
+        startTime = System.nanoTime();
         indexer.index();
-        indexer.retrieveTermVectorsParallel();
+        indexer.retrieveTermVectorsParallel(threads);
+        delta = (System.nanoTime() - startTime)/1000000000.0;
+        System.out.printf("[done in %.2f]\n", delta);
         // calc centroids for each cat
-        System.out.println("Calculating centroids..");
-        Collection<Category> categories = parser.getTopics().values();
+        System.out.printf("Calculating centroids.. ");
+        startTime = System.nanoTime();
+        Collection<Category> categories = dataSet.getTopics().values();
         for (Category c: categories) {
             c.calcCentroid();
         }
-        Map<String, Measure> measureMap = new HashMap<String, Measure>();
-        int correct = 0;
-        int inCorrect = 0;
-        // assign test docs
-        System.out.println("Assigning test documents to categories..");
-        for (Integer docId: parser.getTestDocuments().keySet()) {
-            Document doc = parser.getTestDocuments().get(docId);
-            double min = 1000;
-            Category minCat = null;
-            // prepare debug maps
-            Map<String, Double> refCatCs = new HashMap<String, Double>();
-            Map<String, Double> allCatCs = new HashMap<String, Double>();
-            MapComparator bvc =  new MapComparator(allCatCs);
-            TreeMap<String,Double> sortedAllCatCs= new TreeMap<String,Double>(bvc);
-            // calc similarity for each category
-            for (String key: parser.getTopics().keySet()) {
-                Category cat = parser.getTopics().get(key);
-                TermVector a = cat.getPrototypeTermVector();
-                TermVector b = doc.getTermVector();
-                Double dotProduct = TermVector.dotProduct(a, b);
-                Double cs = Math.cos(dotProduct/(a.size() * b.size()));
-                // find the lowest one
-                if (cs < min) {
-                    min = cs;
-                    minCat = cat;
-                }
-                // assign debug similarities
-                allCatCs.put(cat.getName(), cs);
-                if (doc.getTopics().contains(cat.getName())) {
-                    refCatCs.put(cat.getName(), cs);
-                }
-            }
-            // sort allcat for debugging
-            sortedAllCatCs.putAll(allCatCs);
-            // assign really
-            minCat.addTestDoc(doc);
-            // test if properly assigned
-            boolean found = false;
-            for (String topic: doc.getTopics()) {
-                if (minCat.getName().equals(topic)) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                ++inCorrect;
-//                if (!measureMap.containsKey(minCat.getName())) {
-//                    Measure measure = new Measure(minCat.getName());
-//                    measureMap.put(minCat.getName(), measure);
-//                }
-//                measureMap.get(minCat.getName()).addRetrieved();
-                //System.out.println("Wrongly assigned " + doc.getmNewId() + " to >" + minCat.getName() + "<");
-            } else {
-                ++correct;
-//                if (!measureMap.containsKey(minCat.getName())) {
-//                    Measure measure = new Measure(minCat.getName());
-//                    measureMap.put(minCat.getName(), measure);
-//                }
-//                measureMap.get(minCat.getName()).addRelevant();
-//                measureMap.get(minCat.getName()).addRetrieved();
-
-                //System.out.println("Correctly assigned " + doc.getmNewId() + " to >" + minCat.getName() + "<");
-            }
-        }
-        double accuracy = (100.0 * correct) / (inCorrect + correct);
+        delta = (System.nanoTime() - startTime)/1000000000.0;
+        System.out.printf("[done in %.2f]\n", delta);
+        // assign test docs and evaluate
+        System.out.printf("Classification.. ");
+        startTime = System.nanoTime();
+        Classifier classifier = Classifier.create(dataSet);
+        classifier.classify();
+        delta = (System.nanoTime() - startTime)/1000000000.0;
+        System.out.printf("[done in %.2f]\n", delta);
         System.out.println("===============");
-        System.out.printf("Overall accuracy: %.2f%%", accuracy);
-        System.out.println("===============");
-        System.out.println("Evaluation (ignoring not-assigned/not-retrieved topics):");
-        System.out.println("---------------");
-        System.out.println("Recall\tPrecision\tF-measure\tTopic");
-        // measure
-        for (String key: parser.getTopics().keySet()) {
-            List<Document> retrieved = parser.getTopics().get(key).getDocs();
-            List<Document> relevant = new ArrayList<Document>();
-            if (parser.getRefTopics().containsKey(key)) {
-                Category refCat = parser.getRefTopics().get(key);
-                relevant = refCat.getDocs();
-            }
-            List<Document> relevantRetrieved = new ArrayList<Document>(retrieved);
-            relevantRetrieved.removeAll(relevant);
-            double precision = 0.0;
-            if (retrieved.size() == 0) {
-                precision = Float.NaN;
-                continue;
-            } else {
-                precision = (double) relevantRetrieved.size()/retrieved.size();
-            }
-            double recall = 0.0;
-            if (relevant.size() == 0) {
-                recall = Float.NaN;
-                continue;
-            } else {
-                recall = (double) relevantRetrieved.size() / relevant.size();
-            }
-            double f1 = 2.0 * ((precision * recall)/(precision + recall));
-            DecimalFormat df = new DecimalFormat("00.00");
-            System.out.println(df.format(recall) + "\t" + df.format(precision) +
-                    "\t\t" + ((Double.isNaN(f1)) ? f1 + " " : df.format(f1)) + "\t\t> " + key);
+        System.out.println("Evaluation:");
+        if (!fullEvaluation) {
+            System.out.println("\tignoring not-assigned/not-retrieved topics\n");
         }
-
-
-//        System.out.println("=============================");
-//        // print results for each category
-//        for (Category c: categories) {
-////            if (c.getDocs().size() > 0) {
-////                System.out.println(c.getDocs().size() +
-////                        " testing documents have been added to category '" + c.getName() + "'.");
-////            }
-//            for (Document d: c.getDocs()) {
-//                String ass = c.getName();
-//                boolean found = false;
-//                for (String topic: d.getTopics()) {
-//                    if (ass.equals(topic)) {
-//                        found = true;
-//                        break;
-//                    }
-//                }
-//                if (!found) {
-//                    System.out.println("Wrongly assigned >" + ass + "< to " + d.getmNewId());
-//                } else {
-//                    System.out.println("Correctly assigned >" + ass + "< to " + d.getmNewId() + "<<<<<");
-//                }
-//            }
-//        }
-    }
-
-    private static class MapComparator implements Comparator<String> {
-
-        Map<String, Double> base;
-        public MapComparator(Map<String, Double> base) {
-            this.base = base;
-        }
-
-        // Note: this comparator imposes orderings that are inconsistent with equals.
-        public int compare(String a, String b) {
-            if (base.get(a) >= base.get(b)) {
-                return -1;
-            } else {
-                return 1;
-            } // returning 0 would merge keys
-        }
+        classifier.evaluate(fullEvaluation);
     }
 
     /**
@@ -217,7 +104,7 @@ public class ReutersClassificator {
             if (cli.hasOption("d")) {
                 String workingDir = cli.getOptionValue("d");
                 int threads = determineNumberOfThreads(cli.getOptionValue("t", "0"));
-                runSequential(inspectWorkingDir(new File(workingDir)));
+                run(inspectWorkingDir(new File(workingDir)), threads, cli.hasOption("f"));
             } else {
                 formatter.printHelp("reutersclassificator", options);
                 System.exit(1);

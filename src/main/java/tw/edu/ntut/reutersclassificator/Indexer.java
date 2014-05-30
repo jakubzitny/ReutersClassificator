@@ -34,9 +34,6 @@ import tw.edu.ntut.reutersclassificator.entity.TermVector;
  */
 public class Indexer {
 
-    /** number of results */
-    private static final int HITS_PER_PAGE = 10;
-
     /** lucene version for initialization of control objects */
     private static final Version LUCENE_VERSION = Version.LUCENE_48;
 
@@ -58,8 +55,6 @@ public class Indexer {
     private IndexWriterConfig mConfig;
     private IndexWriter mWriter;
     private IndexReader mReader;
-    private IndexSearcher mSearcher;
-    private TopScoreDocCollector mCollector;
 
     /** produced documents go to this shared queue */
     private LinkedBlockingQueue<Document> mQueue = null;
@@ -69,11 +64,12 @@ public class Indexer {
 
     private Map<Integer, Document> mDocuments;
 
-    public Indexer (Map<Integer, Document> docs) {
+    public static Indexer create (Map<Integer, Document> docs) {
+        return new Indexer(docs);
+    }
+
+    private Indexer (Map<Integer, Document> docs) {
         mConfig = new IndexWriterConfig(LUCENE_VERSION, mAnalyzer);
-//        Lucene46Codec codec = new Lucene46Codec();
-//        codec.termVectorsFormat();
-//        mConfig.setCodec(codec);
         mConfig.setOpenMode(OpenMode.CREATE);
         mConfig.setSimilarity(new DefaultSimilarity()); // DefaultSimilarity is subclass of TFIDFSimilarity
         try {
@@ -86,7 +82,102 @@ public class Indexer {
         mDocuments = docs;
     }
 
+    /**
+     * IndexReader http://bit.ly/1jXBg1F
+     * retrieve trem vectors for all previously indexed docs
+     * parallel version
+     */
+    public void retrieveTermVectorsParallel (int threads) {
+        try {
+            mReader = DirectoryReader.open(mDir);
+            ExecutorService executor = Executors.newFixedThreadPool(threads);
+            for (int i = 0; i < mReader.maxDoc(); i++) {
+                Runnable worker = new DocTermVectorRetriever(mReader, i);
+                executor.execute(worker);
+            }
+            executor.shutdown();
+            while (!executor.isTerminated()) {
+            }
+        } catch (IOException e) {
+            System.err.println("There was a problem with searching indexed Documents.");
+            System.err.println(e.getMessage());
+            e.printStackTrace();
+        }
+    }
 
+    /**
+     * IndexReader http://bit.ly/1jXBg1F
+     * retrieve trem vectors for all previously indexed docs
+     */
+    public void retrieveTermVectors() {
+        try {
+            mReader = DirectoryReader.open(mDir);
+            for (int i = 0; i < mReader.maxDoc(); i++) {
+                org.apache.lucene.document.Document doc = mReader.document(i);
+                Terms terms = mReader.getTermVector(i, DEFAULT_SEARCH_FIELD);
+                TermsEnum termsEnum = terms.iterator(null);
+                BytesRef text;
+                TermVector tfIdf = TermVector.create();
+                while((text = termsEnum.next()) != null) {
+                    String termString = text.utf8ToString();
+                    Term termInstance  = new Term(DEFAULT_SEARCH_FIELD, termString);
+                    long tf = termsEnum.totalTermFreq(); // <---- for this doc
+                    long df = mReader.docFreq(termInstance); // <---- total doc freq
+                    double tfIdfForTerm = tf * (mReader.getDocCount(DEFAULT_SEARCH_FIELD)/df);
+                    tfIdf.addMember(tfIdfForTerm, termInstance);
+                }
+                mDocuments.get(Integer.parseInt(doc.get("newId"))).setTermVector(tfIdf);
+            }
+        } catch (IOException e) {
+            System.err.println("There was a problem with searching indexed Documents.");
+            System.err.println(e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * creates Query from user's input query string
+     * @param querystr
+     * @return Query
+     */
+    private Query prepareQuery(String querystr) {
+        Query query = null;
+        try {
+            query = new QueryParser(LUCENE_VERSION, DEFAULT_SEARCH_FIELD, mAnalyzer).parse(querystr);
+        } catch (org.apache.lucene.queryparser.classic.ParseException e) {
+            System.err.println("There was a problem with parsing your query.");
+            System.err.println(e.getMessage());
+            e.printStackTrace();
+        }
+        return query;
+    }
+
+    /**
+     * run the indexing
+     */
+    public void index() {
+        try {
+            mWriter = new IndexWriter(mDir, mConfig);
+            for (Integer docKey : mDocuments.keySet()) {
+                Document doc = mDocuments.get(docKey);
+                if (doc.getBody() == null) continue;
+                try {
+                    mWriter.addDocument(doc.getLuceneDocument());
+                } catch (IOException e) {
+                    // TODO Auto-generated catch block
+                    e.printStackTrace();
+                }
+            }
+            mWriter.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+
+    /**
+     * runnable task for retrieving term vectors
+     */
     private class DocTermVectorRetriever implements Runnable {
 
         private IndexReader mReader;
@@ -119,174 +210,6 @@ public class Indexer {
                 System.err.println(e.getMessage());
                 e.printStackTrace();
             }
-        }
-    }
-
-    public void retrieveTermVectorsParallel () {
-        final int THREADS = 2;
-        try {
-            mReader = DirectoryReader.open(mDir);
-            ExecutorService executor = Executors.newFixedThreadPool(THREADS);
-            for (int i = 0; i < mReader.maxDoc(); i++) {
-                Runnable worker = new DocTermVectorRetriever(mReader, i);
-                executor.execute(worker);
-            }
-            executor.shutdown();
-            while (!executor.isTerminated()) {
-            }
-        } catch (IOException e) {
-            System.err.println("There was a problem with searching indexed Documents.");
-            System.err.println(e.getMessage());
-            e.printStackTrace();
-        }
-    }
-
-    public void retrieveTermVectors() {
-        try {
-            mReader = DirectoryReader.open(mDir);
-            for (int i = 0; i < mReader.maxDoc(); i++) {
-                org.apache.lucene.document.Document doc = mReader.document(i);
-                Terms terms = mReader.getTermVector(i, DEFAULT_SEARCH_FIELD);
-                TermsEnum termsEnum = terms.iterator(null);
-                BytesRef text;
-                TermVector tfIdf = TermVector.create();
-                while((text = termsEnum.next()) != null) {
-                    String termString = text.utf8ToString();
-                    Term termInstance  = new Term(DEFAULT_SEARCH_FIELD, termString);
-                    long tf = termsEnum.totalTermFreq(); // <---- for this doc
-                    long df = mReader.docFreq(termInstance); // <---- total doc freq
-                    double tfIdfForTerm = tf * (mReader.getDocCount(DEFAULT_SEARCH_FIELD)/df);
-                    tfIdf.addMember(tfIdfForTerm, termInstance);
-                }
-                mDocuments.get(Integer.parseInt(doc.get("newId"))).setTermVector(tfIdf);
-            }
-        } catch (IOException e) {
-            System.err.println("There was a problem with searching indexed Documents.");
-            System.err.println(e.getMessage());
-            e.printStackTrace();
-        }
-    }
-
-    /**
-     * IndexReader http://bit.ly/1jXBg1F
-     * retrieve trem vectors for all previously indexed docs
-     */
-    public void retrieveTermVectorsOld() {
-        try {
-            mReader = DirectoryReader.open(mDir);
-            for (int i = 0; i < mReader.maxDoc(); i++) {
-                org.apache.lucene.document.Document doc = mReader.document(i);
-                //long tf = mReader.getSumTotalTermFreq(DEFAULT_SEARCH_FIELD);
-                //mReader.totalTermFreq(mReader.getTermVector(i, DEFAULT_SEARCH_FIELD).);
-                Terms terms = mReader.getTermVector(i, DEFAULT_SEARCH_FIELD);
-                //terms.
-                //mReader.docFreq()
-//                Fields fields = doc.getFields();
-//                doc.fi
-                terms.iterator(TermsEnum.EMPTY);
-                terms.size();
-                TermsEnum termsEnum = terms.iterator(null);
-                //termsEnum.totalTermFreq();
-                BytesRef text;
-                while((text = termsEnum.next()) != null) {
-                    String termString = text.utf8ToString();
-                    Term termInstance  = new Term(DEFAULT_SEARCH_FIELD, termString);
-                    long tf = mReader.totalTermFreq(termInstance);
-                    long tf2 = termsEnum.totalTermFreq(); // <---- for this doc
-                    int df = termsEnum.docFreq(); // for this doc (bad)
-                    long df2 = mReader.docFreq(termInstance); // <---- total doc freq
-                    DocsEnum docsEnum = termsEnum.docs(MultiFields.getLiveDocs(mReader), null);
-                    System.out.println("text=" + text.utf8ToString());
-                    DocsEnum de = MultiFields.getTermDocsEnum(mReader, MultiFields.getLiveDocs(mReader), DEFAULT_SEARCH_FIELD, text);
-                    int x = 1+1;
-                }
-                int j = 0;
-//                while (true) {
-//
-//                }
-//                List<IndexableField> fields = doc.getFields();
-//                for (IndexableField field: fields) {
-//
-//                }
-                IndexableField ifield = doc.getField(DEFAULT_SEARCH_FIELD);
-                //mReader.getSumTotalTermFreq(DEFAULT_SEARCH_FIELD);
-                long tf = mReader.getTermVector(i, DEFAULT_SEARCH_FIELD).getSumTotalTermFreq();
-                long idf = -1;
-                try {
-                    idf = mReader.getTermVector(i, DEFAULT_SEARCH_FIELD).getSumDocFreq();
-                } catch (NullPointerException e) {
-                    System.out.println("e");
-                }
-                //TermVector tfIdf = TermVector.create(tf, idf);
-                //mDocuments.get(Integer.parseInt(doc.get("newId"))).setTermVector(tfIdf);
-            }
-        } catch (IOException e) {
-            System.err.println("There was a problem with searching indexed Documents.");
-            System.err.println(e.getMessage());
-            e.printStackTrace();
-        }
-
-    }
-
-    /**
-     * creates Query from user's input query string
-     * @param querystr
-     * @return Query
-     */
-    private Query prepareQuery(String querystr) {
-        Query query = null;
-        try {
-            query = new QueryParser(LUCENE_VERSION, DEFAULT_SEARCH_FIELD, mAnalyzer).parse(querystr);
-        } catch (org.apache.lucene.queryparser.classic.ParseException e) {
-            System.err.println("There was a problem with parsing your query.");
-            System.err.println(e.getMessage());
-            e.printStackTrace();
-        }
-        return query;
-    }
-
-    /**
-     * opens configured IndexReader for indexing
-     * @throws IOException
-     */
-    private void openReader() throws IOException {
-        try {
-            mReader = DirectoryReader.open(mDir);
-            mSearcher = new IndexSearcher(mReader);
-            mCollector = TopScoreDocCollector.create(HITS_PER_PAGE, true);
-        } catch (Exception e) {
-            // TODO
-            e.printStackTrace();
-        }
-    }
-
-    /**
-     * closes opened IndexReader
-     * @throws IOException
-     */
-    private void closeReader() throws IOException {
-        mReader.close();
-    }
-
-    /**
-     * run the indexing
-     */
-    public void index() {
-        try {
-            mWriter = new IndexWriter(mDir, mConfig);
-            for (Integer docKey : mDocuments.keySet()) {
-                Document doc = mDocuments.get(docKey);
-                if (doc.getBody() == null) continue;
-                try {
-                    mWriter.addDocument(doc.getLuceneDocument());
-                } catch (IOException e) {
-                    // TODO Auto-generated catch block
-                    e.printStackTrace();
-                }
-            }
-            mWriter.close();
-        } catch (IOException e) {
-            e.printStackTrace();
         }
     }
 

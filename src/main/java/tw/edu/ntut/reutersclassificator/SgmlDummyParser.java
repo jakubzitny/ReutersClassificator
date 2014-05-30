@@ -1,9 +1,6 @@
 package tw.edu.ntut.reutersclassificator;
 
-import tw.edu.ntut.reutersclassificator.entity.Category;
-import tw.edu.ntut.reutersclassificator.entity.Document;
-import tw.edu.ntut.reutersclassificator.entity.TestDocument;
-import tw.edu.ntut.reutersclassificator.entity.TrainDocument;
+import tw.edu.ntut.reutersclassificator.entity.*;
 import tw.edu.ntut.reutersclassificator.exception.UnexpectedEOFException;
 import tw.edu.ntut.reutersclassificator.exception.UnknownDocumentException;
 
@@ -90,7 +87,7 @@ public class SgmlDummyParser {
      * terminates the queue
      * TODO: threads for each file
      */
-    public Map<String, Category> parseFiles () {
+    public DataSet parseFiles () {
         try {
             for (File file: mFiles) {
                 try {
@@ -116,7 +113,7 @@ public class SgmlDummyParser {
             System.err.println(e.getMessage());
             System.exit(2);
         }
-        return mTopics;
+        return DataSet.create(mTestDocuments, mTopics, mRefTopics);
     }
 
     /**
